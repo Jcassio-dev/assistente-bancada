@@ -1,0 +1,4 @@
+[wokwi]
+version = 1
+firmware = "build/teste-blink.ino.merged.bin"
+elf = "build/teste-blink.ino.elf"
