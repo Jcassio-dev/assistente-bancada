@@ -1,0 +1,9 @@
+.env
+dados/pdfs/
+dados/indice/
+dados/modelos/
+projetos/
+build/
+__pycache__/
+.venv/
+*.sqlite
