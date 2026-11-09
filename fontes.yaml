@@ -1,0 +1,118 @@
+# Documentos indexados pelo RAG. O scripts/baixar_documentos.py baixa cada um
+# para dados/pdfs/ e o scripts/indexar.py extrai, divide e indexa.
+#
+# Campos:
+#   id        nome curto usado no filtro buscar_documentos(documento=...)
+#   titulo    nome do documento citado nas respostas
+#   url       endereço de onde o arquivo é baixado
+#   origem    fabricante/autor; "(cópia em ...)" quando o fabricante não tem link estável
+#   tipo      pdf ou html
+#   capitulos (opcional, só PDF) títulos (sem a numeração) dos capítulos ou seções a indexar, procurados nos
+#             marcadores (bookmarks) do PDF. Sem o campo, indexa o documento inteiro.
+
+documentos:
+  # --- ESP32 (Espressif) ---
+  - id: esp32-datasheet
+    titulo: ESP32 Series Datasheet
+    url: https://www.espressif.com/sites/default/files/documentation/esp32_datasheet_en.pdf
+    origem: Espressif Systems
+    tipo: pdf
+    capitulos:
+      - Pins
+      - Boot Configurations
+      - RTC and Low-power Management
+      - Timers and Watchdogs
+      - Digital Peripherals
+      - Analog Peripherals
+      - Peripheral Pin Configurations
+      - Electrical Characteristics
+      - Appendix A
+
+  - id: esp32-trm
+    titulo: ESP32 Technical Reference Manual
+    url: https://www.espressif.com/sites/default/files/documentation/esp32_technical_reference_manual_en.pdf
+    origem: Espressif Systems
+    tipo: pdf
+    capitulos:
+      - IO MUX and GPIO Matrix
+      - LED PWM Controller
+      - Timer Group
+      - On-Chip Sensors and Analog Signal Processing
+
+  - id: esp32-hardware-design
+    titulo: ESP32 Hardware Design Guidelines
+    url: https://docs.espressif.com/projects/esp-hardware-design-guidelines/en/latest/esp32/esp-hardware-design-guidelines-en-master-esp32.pdf
+    origem: Espressif Systems
+    tipo: pdf
+    capitulos:
+      - Schematic Checklist
+      - PCB Layout Design
+
+  - id: esp32-devkitc
+    titulo: ESP32-DevKitC V4 User Guide
+    url: https://docs.espressif.com/projects/esp-dev-kits/en/latest/esp32/esp32-devkitc/user_guide.html
+    origem: Espressif Systems
+    tipo: html
+
+  # --- Sensores e displays (todos existem no Wokwi) ---
+  - id: dht22
+    titulo: AM2302 (DHT22) Digital Humidity and Temperature Sensor
+    url: https://cdn-shop.adafruit.com/datasheets/Digital+humidity+and+temperature+sensor+AM2302.pdf
+    origem: Aosong Electronics (cópia em Adafruit)
+    tipo: pdf
+
+  - id: hc-sr04
+    titulo: HC-SR04 Ultrasonic Ranging Module
+    url: https://cdn.sparkfun.com/datasheets/Sensors/Proximity/HCSR04.pdf
+    origem: ElecFreaks (cópia em SparkFun)
+    tipo: pdf
+
+  - id: ssd1306
+    titulo: SSD1306 OLED/PLED Segment/Common Driver with Controller
+    url: https://cdn-shop.adafruit.com/datasheets/SSD1306.pdf
+    origem: Solomon Systech (cópia em Adafruit)
+    tipo: pdf
+
+  - id: mpu6050
+    titulo: MPU-6000 and MPU-6050 Product Specification
+    url: https://cdn.sparkfun.com/datasheets/Components/General%20IC/PS-MPU-6000A.pdf
+    origem: TDK InvenSense (cópia em SparkFun)
+    tipo: pdf
+
+  # --- Referência de peças do Wokwi ---
+  - id: wokwi-esp32
+    titulo: Wokwi - ESP32 Simulation Guide
+    url: https://docs.wokwi.com/guides/esp32
+    origem: Wokwi
+    tipo: html
+
+  - id: wokwi-dht22
+    titulo: Wokwi - wokwi-dht22 Reference
+    url: https://docs.wokwi.com/parts/wokwi-dht22
+    origem: Wokwi
+    tipo: html
+
+  - id: wokwi-hc-sr04
+    titulo: Wokwi - wokwi-hc-sr04 Reference
+    url: https://docs.wokwi.com/parts/wokwi-hc-sr04
+    origem: Wokwi
+    tipo: html
+
+  - id: wokwi-ssd1306
+    titulo: Wokwi - board-ssd1306 Reference
+    url: https://docs.wokwi.com/parts/board-ssd1306
+    origem: Wokwi
+    tipo: html
+
+  - id: wokwi-mpu6050
+    titulo: Wokwi - wokwi-mpu6050 Reference
+    url: https://docs.wokwi.com/parts/wokwi-mpu6050
+    origem: Wokwi
+    tipo: html
+
+  # --- Fabricação de PCB ---
+  - id: jlcpcb
+    titulo: JLCPCB PCB Manufacturing Capabilities
+    url: https://jlcpcb.com/capabilities/pcb-capabilities
+    origem: JLCPCB
+    tipo: html
