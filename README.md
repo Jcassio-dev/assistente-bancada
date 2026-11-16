@@ -4,7 +4,7 @@
 
 ---
 
-> ## ⚠️ Status do desenvolvimento — REMOVER ANTES DA ENTREGA
+> ## Status do desenvolvimento (remover antes da entrega)
 >
 > **Pronto**
 > - Caminho de simulação validado: `arduino-cli` compila o ESP32 e o `wokwi-cli` simula em modo headless mostrando a serial (`exemplos/teste-blink`).
@@ -99,7 +99,7 @@ O BMP280 foi considerado, mas ficou de fora porque não existe como peça no Wok
 
 #### Extração e trechos
 
-- **Tabelas:** detectadas com `find_tables` do PyMuPDF. Cada linha vira um registro com o nome da coluna junto do valor (`Parameter: IOH | Description: High-level source current | Typ: 40 | Unit: mA`), para que o trecho não perca o cabeçalho. O texto de cada célula é lido pelo extrator de texto normal, recortado pela área da célula, porque o `extract()` do PyMuPDF embaralhava números nos datasheets da Espressif (`–0.3` saía como `03 – .`). No HTML, quando o cabeçalho está numa tabela separada do corpo (caso da JLCPCB), ele é reaproveitado.
+- **Tabelas:** detectadas com `find_tables` do PyMuPDF. Cada linha vira um registro com o nome da coluna junto do valor (`Parameter: IOH | Description: High-level source current | Typ: 40 | Unit: mA`), para que o trecho não perca o cabeçalho. O texto de cada célula é lido pelo extrator de texto normal, recortado pela área da célula, porque o `extract()` do PyMuPDF embaralhava números nos datasheets da Espressif (`-0.3` saía como `03 - .`). No HTML, quando o cabeçalho está numa tabela separada do corpo (caso da JLCPCB), ele é reaproveitado.
 - **Seções:** vêm dos marcadores (bookmarks) do PDF. Nos PDFs grandes, os capítulos são escolhidos pelo título, e não por número de página, que muda a cada revisão do documento. A seção só muda quando um bloco *começa* com o título, já que o texto cita outras seções ("see Section 5.2").
 - **Limpeza:** cabeçalhos e rodapés das páginas são descartados. O PDF do DHT22 simula negrito desenhando cada palavra 4 vezes; três ou mais cópias seguidas viram uma.
 - **Trechos:** cerca de 1200 caracteres com 200 de sobreposição, sem misturar seções; um trecho que seria só um título é juntado ao seguinte. Cada trecho guarda `documento`, `pagina` (página do PDF), `secao`, `url` e `origem`.
@@ -107,7 +107,7 @@ O BMP280 foi considerado, mas ficou de fora porque não existe como peça no Wok
 #### Embeddings
 
 `intfloat/multilingual-e5-small`, rodando localmente com `fastembed` (ONNX, sem PyTorch e sem outra chave de API).
-- Os documentos estão em inglês e o usuário pergunta em português. O e5 multilíngue foi treinado para busca (consulta → trecho) em cerca de 100 idiomas, então uma pergunta em português ainda encontra o trecho em inglês. A reformulação em inglês feita pelo agente melhora o resultado, mas não é o único apoio.
+- Os documentos estão em inglês e o usuário pergunta em português. O e5 multilíngue foi treinado para busca (consulta para trecho) em cerca de 100 idiomas, então uma pergunta em português ainda encontra o trecho em inglês. A reformulação em inglês feita pelo agente melhora o resultado, mas não é o único apoio.
 - Ele é pequeno (cerca de 470 MB, vetores de 384 dimensões) e indexa os 762 trechos em poucos minutos na CPU. Descartamos o `multilingual-e5-large` (2,2 GB, 5 a 10 vezes mais lento) e o embedding padrão do Chroma (só inglês).
 - O e5 exige os prefixos `passage: ` nos trechos e `query: ` nas consultas. Os dois lados passam pelas mesmas funções em `agente/rag.py`, então o prefixo nunca fica de fora.
 
@@ -120,9 +120,9 @@ Posição do primeiro trecho relevante entre os 5 primeiros (`-` = não recupera
 | # | Pergunta | Termo exato | Só embeddings | Híbrido RRF | **Híbrido intercalado** |
 |---|---|:-:|:-:|:-:|:-:|
 | 1 | Maximum source current of an ESP32 GPIO pin | | - | - | - |
-| 2 | What happens to GPIO12 (MTDI) during boot | ✔ | - | - | **2** |
-| 3 | Input-only GPIOs (GPIO34 to GPIO39) | ✔ | 2 | 2 | 2 |
-| 4 | Why ADC2 doesn't work with Wi-Fi | ✔ | 3 | 1 | 2 |
+| 2 | What happens to GPIO12 (MTDI) during boot | sim | - | - | **2** |
+| 3 | Input-only GPIOs (GPIO34 to GPIO39) | sim | 2 | 2 | 2 |
+| 4 | Why ADC2 doesn't work with Wi-Fi | sim | 3 | 1 | 2 |
 | 5 | *Faixa de tensão do DHT22* (português) | | - | - | - |
 | 6 | *Trilha mínima da JLCPCB em 2 camadas* (português) | | 1 | 5 | 1 |
 | 7 | SSD1306 no Wokwi: pinos e endereço I2C | | 1 | 1 | 1 |
@@ -158,7 +158,7 @@ Servidor FastMCP (stdio) em `servidor_bancada/servidor.py`. As funções são pu
 
 Servidor oficial do Wokwi (`wokwi-cli mcp`, **versão 0.29.1 fixada**, porque o recurso é experimental). Ele precisa de `WOKWI_CLI_TOKEN` e expõe 11 ferramentas, entre elas `wokwi_start_simulation`, `wokwi_read_serial`, `wokwi_read_pin` e `wokwi_set_control`. A compilação não está entre elas, por isso existe a ferramenta `compilar` no servidor bancada.
 
-O fluxo do agente é `salvar_projeto → compilar → wokwi_start_simulation(projectPath) → wokwi_read_serial`.
+O fluxo do agente é `salvar_projeto`, `compilar`, `wokwi_start_simulation(projectPath)` e `wokwi_read_serial`, nessa ordem.
 
 Decisões e aprendizados:
 - No ESP32, o `wokwi.toml` precisa apontar para `build/<sketch>.ino.merged.bin`, que inclui bootloader e partições, e para o `.elf`. O `.bin` simples não dá boot.
@@ -168,8 +168,8 @@ Decisões e aprendizados:
 
 As skills ficam em `skills/<nome>/SKILL.md`, com frontmatter `name` e `description`. A mensagem de sistema lista só nome e descrição; o conteúdo completo entra pela ferramenta `carregar_skill(nome)`, quando o agente decide que precisa.
 
-- **prototipar-circuito:** entender o pedido → buscar datasheets → montar `diagram.json` e código → `validar_diagrama` → corrigir → compilar e simular → ler a serial → corrigir e simular de novo se preciso.
-- **circuito-para-placa:** gerar BOM → escolher encapsulamentos → calcular largura de trilhas → conferir as regras do fabricante → checklist antes de gerar os Gerbers.
+- **prototipar-circuito:** entender o pedido, buscar os datasheets, montar o `diagram.json` e o código, rodar `validar_diagrama` e corrigir, compilar e simular, ler a serial e, se preciso, corrigir e simular de novo.
+- **circuito-para-placa:** gerar a BOM, escolher os encapsulamentos, calcular a largura das trilhas, conferir as regras do fabricante e passar pelo checklist antes de gerar os Gerbers.
 
 ### Memória
 
