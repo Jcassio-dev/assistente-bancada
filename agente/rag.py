@@ -144,7 +144,7 @@ def formatar_trechos(trechos):
         cabecalho = f"[{i}] {t['titulo']} ({t['documento']}), {pagina}"
         if t["secao"]:
             cabecalho += f", seção \"{t['secao']}\""
-        blocos.append(f"{cabecalho} — pontuação {t['pontuacao']}\nFonte: {t['url']}\n{t['texto']}")
+        blocos.append(f"{cabecalho}, pontuação {t['pontuacao']}\nFonte: {t['url']}\n{t['texto']}")
     return "\n\n".join(blocos)
 
 
