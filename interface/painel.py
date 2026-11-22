@@ -51,10 +51,14 @@ def telas_atualizadas(pasta):
     }
 
 
-def html_bancada(diagrama, telas=None, destaques=None, altura=480):
-    """HTML da mesa com o circuito. diagrama=None desenha a mesa vazia."""
+def html_bancada(diagrama, telas=None, destaques=None, altura=480, acesos=None):
+    """HTML da mesa com o circuito. diagrama=None desenha a mesa vazia.
+
+    acesos: {id do LED: bool} vindo da simulação ao vivo.
+    """
     dados = json.dumps(
-        {"diagrama": diagrama or {"parts": [], "connections": []}, "telas": telas or {}, "destaques": sorted(destaques or [])},
+        {"diagrama": diagrama or {"parts": [], "connections": []}, "telas": telas or {},
+         "destaques": sorted(destaques or []), "acesos": acesos or {}},
         ensure_ascii=False,
     ).replace("</", "<\\/")
     return (
@@ -137,6 +141,7 @@ async function montarPeca(parte) {
   } else if (customElements.get(parte.type)) {
     const el = document.createElement(parte.type);
     for (const [k, v] of Object.entries(parte.attrs || {})) el.setAttribute(k, v);
+    if (parte.id in DADOS.acesos) el.value = DADOS.acesos[parte.id];  // LED aceso na simulação ao vivo
     caixa.appendChild(el);
     await el.updateComplete;
     for (const p of el.pinInfo || []) pinos[p.name] = { x: p.x, y: p.y };
