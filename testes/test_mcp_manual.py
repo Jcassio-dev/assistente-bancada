@@ -37,7 +37,7 @@ async def fluxo():
                          "gerar_bom", "salvar_projeto", "compilar"}
         assert nomes_bancada <= f.keys()
         assert {"wokwi_start_simulation", "wokwi_read_serial"} <= f.keys()
-        assert len(lista) == 18, sorted(f)
+        assert len(lista) == 19, sorted(f)  # 7 do bancada, 11 do Wokwi e esperar_serial
 
         salvo = json.loads(texto(await f["salvar_projeto"].ainvoke({
             "nome": "teste-blink",
@@ -49,13 +49,9 @@ async def fluxo():
 
         inicio = texto(await f["wokwi_start_simulation"].ainvoke({"projectPath": salvo["pasta"]}))
         print("start:", inicio)
-        serial = ""
-        for _ in range(10):  # a serial chega aos poucos
-            await asyncio.sleep(1)
-            serial += texto(await f["wokwi_read_serial"].ainvoke({}))
-            if "LED: APAGADO" in serial:
-                break
+        serial = await f["esperar_serial"].ainvoke({"texto": "LED: APAGADO", "segundos": 15})
         print("serial:", serial)
+        assert "encontrado" in serial
         return serial
 
 

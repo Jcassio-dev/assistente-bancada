@@ -4,6 +4,7 @@ As chaves vêm do .env (load_dotenv). Os dois servidores rodam via stdio como
 processos filhos e herdam o ambiente deste processo.
 """
 
+import asyncio
 import os
 import shutil
 import sys
@@ -11,6 +12,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 from dotenv import load_dotenv
+from langchain_core.tools import StructuredTool
 from langchain_mcp_adapters.client import MultiServerMCPClient
 from langchain_mcp_adapters.tools import load_mcp_tools
 
@@ -58,9 +60,43 @@ def configuracao_servidores():
     }
 
 
+def texto_ferramenta(resultado):
+    """Conteúdo de uma ferramenta MCP: string ou lista de blocos de texto."""
+    if isinstance(resultado, str):
+        return resultado
+    return "\n".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in resultado)
+
+
+def criar_esperar_serial(ler_serial, intervalo=1.0):
+    """Ferramenta que lê a serial do Wokwi até aparecer um texto.
+
+    O wokwi_read_serial devolve só o que já chegou. Chamado em sequência pelo
+    modelo, ele lia a serial antes da primeira leitura do sensor (o sketch espera
+    alguns segundos), e o modelo chegou a descrever uma saída que não veio.
+    """
+
+    async def esperar_serial(texto: str, segundos: int = 20) -> str:
+        """Espera o texto aparecer na serial da simulação em andamento e devolve a saída.
+
+        Use depois do wokwi_start_simulation, com um texto que o sketch escreve
+        (ex.: "Temperatura"). segundos: tempo máximo de espera (até 60).
+        """
+        segundos = max(1, min(int(segundos), 60))
+        saida = ""
+        for _ in range(int(segundos / intervalo)):
+            saida = texto_ferramenta(await ler_serial.ainvoke({}))
+            if texto.lower() in saida.lower():
+                return f"Texto \"{texto}\" encontrado na serial.\n\n{saida[-3000:]}"
+            await asyncio.sleep(intervalo)
+        return (f"O texto \"{texto}\" NÃO apareceu na serial em {segundos} s. Não diga que o circuito "
+                f"funcionou: investigue (pinos, alimentação, código) ou espere mais.\n\nSaída até agora:\n{saida[-3000:]}")
+
+    return StructuredTool.from_function(coroutine=esperar_serial, name="esperar_serial")
+
+
 @asynccontextmanager
 async def ferramentas_mcp():
-    """Abre uma sessão por servidor e devolve as ferramentas (7 do bancada + 11 do Wokwi).
+    """Abre uma sessão por servidor e devolve as ferramentas (7 do bancada, 11 do Wokwi e esperar_serial).
 
     Uso: async with ferramentas_mcp() as ferramentas: ...
 
@@ -75,4 +111,7 @@ async def ferramentas_mcp():
         for nome in cliente.connections:
             sessao = await pilha.enter_async_context(cliente.session(nome))
             ferramentas += await load_mcp_tools(sessao, server_name=nome)
+        ler_serial = next((f for f in ferramentas if f.name == "wokwi_read_serial"), None)
+        if ler_serial:
+            ferramentas.append(criar_esperar_serial(ler_serial))
         yield ferramentas
