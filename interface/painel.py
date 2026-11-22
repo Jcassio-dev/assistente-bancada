@@ -1,4 +1,4 @@
-"""Painel "Bancada" da interface: desenha o circuito do projeto atual ao lado do chat.
+"""Bancada da interface: desenha o circuito do projeto da conversa ao lado do chat.
 
 As peças vêm da biblioteca @wokwi/elements (MIT) e as placas (ESP32 DevKitC V4,
 display SSD1306) dos desenhos do repositório wokwi-boards. Os dois são carregados
@@ -51,9 +51,10 @@ def telas_atualizadas(pasta):
     }
 
 
-def html_bancada(diagrama, telas=None, destaques=None, altura=460):
+def html_bancada(diagrama, telas=None, destaques=None, altura=480):
+    """HTML da mesa com o circuito. diagrama=None desenha a mesa vazia."""
     dados = json.dumps(
-        {"diagrama": diagrama, "telas": telas or {}, "destaques": sorted(destaques or [])},
+        {"diagrama": diagrama or {"parts": [], "connections": []}, "telas": telas or {}, "destaques": sorted(destaques or [])},
         ensure_ascii=False,
     ).replace("</", "<\\/")
     return (
@@ -68,26 +69,36 @@ MODELO_HTML = r"""<!doctype html>
 <html><head><meta charset="utf-8">
 <script src="https://cdn.jsdelivr.net/npm/@wokwi/elements@__VERSAO__/dist/wokwi-elements.bundle.js"></script>
 <style>
-  html, body { margin: 0; background: #f4f1ea; font-family: system-ui, sans-serif; }
-  #area { position: relative; width: 100%; height: __ALTURA__px; overflow: hidden; }
+  html, body { margin: 0; background: transparent; font-family: "Source Sans 3", system-ui, sans-serif; }
+  /* mesa de corte: verde escuro com grade de 10 mm */
+  #area { position: relative; width: 100%; height: __ALTURA__px; overflow: hidden; border-radius: 10px;
+          background-color: #1b2b25;
+          background-image: linear-gradient(rgba(255,255,255,.045) 1px, transparent 1px),
+                            linear-gradient(90deg, rgba(255,255,255,.045) 1px, transparent 1px);
+          background-size: 24px 24px; }
+  #vazia { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+           justify-content: center; color: #8fa89c; text-align: center; padding: 0 40px; }
+  #vazia b { color: #cfe3d8; font-size: 15px; margin-bottom: 6px; font-weight: 600; }
+  #vazia span { font-size: 13px; line-height: 1.5; }
   #mesa { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   .peca { position: absolute; }
   .peca img { display: block; }
   .tela { position: absolute; image-rendering: pixelated; }
-  .rotulo { position: absolute; font-size: 11px; color: #555; white-space: nowrap; }
+  .rotulo { position: absolute; left: 0; top: 100%; margin-top: 2px; font-size: 10px; color: #9db5aa;
+            white-space: nowrap; font-family: ui-monospace, monospace; }
   .desconhecida { border: 1px dashed #999; padding: 6px; font-size: 11px; background: #fff; }
-  .nova { outline: 2px solid #f0a020; outline-offset: 3px; border-radius: 4px; }
+  .nova { outline: 2px dashed #e8a33d; outline-offset: 4px; border-radius: 4px; }
   svg#fios { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
   svg#fios path { fill: none; stroke-linecap: round; stroke-linejoin: round; pointer-events: stroke; }
-  #aviso { position: absolute; bottom: 4px; left: 8px; font-size: 11px; color: #a33; }
+  #aviso { position: absolute; bottom: 6px; left: 10px; font-size: 11px; color: #f08a7a; }
 </style></head>
 <body><div id="area"><div id="mesa"><svg id="fios"></svg></div><div id="aviso"></div></div>
 <script>
 const DADOS = __DADOS__;
 const MM = 3.7795;  // pixels por milímetro (mesma escala do Wokwi)
 const PLACAS = "https://cdn.jsdelivr.net/gh/wokwi/wokwi-boards@__COMMIT__/boards/";
-const CORES = { green: "#2e8b57", red: "#d22", black: "#222", blue: "#2266dd", yellow: "#d4a017",
-                orange: "#ee7700", white: "#bbb", purple: "#8a2be2", gray: "#888", grey: "#888", "": "#2e8b57" };
+const CORES = { green: "#3cb371", red: "#e53935", black: "#111", blue: "#3f7fe8", yellow: "#e0b326",
+                orange: "#f08a24", white: "#eee", purple: "#9b59d0", gray: "#999", grey: "#999", "": "#3cb371" };
 const mesa = document.getElementById("mesa");
 const destaques = new Set(DADOS.destaques);
 
@@ -146,9 +157,13 @@ function posicaoPino(peca, nome) {
   const w = peca.caixa.offsetWidth, h = peca.caixa.offsetHeight;
   const ang = (peca.rotacao * Math.PI) / 180;
   const dx = pino.x - w / 2, dy = pino.y - h / 2;
+  // pino na borda esquerda/direita sai na horizontal; em cima/embaixo, na vertical
+  let saida = (pino.x < 0.2 * w || pino.x > 0.8 * w) && pino.y > 0.08 * h && pino.y < 0.92 * h ? "h" : "v";
+  if (Math.round(peca.rotacao / 90) % 2) saida = saida === "h" ? "v" : "h";
   return {
     x: peca.caixa.offsetLeft + w / 2 + dx * Math.cos(ang) - dy * Math.sin(ang),
     y: peca.caixa.offsetTop + h / 2 + dx * Math.sin(ang) + dy * Math.cos(ang),
+    saida,
   };
 }
 
@@ -172,17 +187,33 @@ async function desenhar() {
     const b = pecas[pb] && posicaoPino(pecas[pb], pinoB);
     if (!a || !b) { faltando.push(de + " / " + para); continue; }
     pontos.push(a, b);
-    const meio = (a.y + b.y) / 2;
-    const caminho = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    caminho.setAttribute("d", `M ${a.x} ${a.y} V ${meio} H ${b.x} V ${b.y}`);
+    let d;
+    if (a.saida === "h" && b.saida === "h") d = `M ${a.x} ${a.y} H ${(a.x + b.x) / 2} V ${b.y} H ${b.x}`;
+    else if (a.saida === "v" && b.saida === "v") d = `M ${a.x} ${a.y} V ${(a.y + b.y) / 2} H ${b.x} V ${b.y}`;
+    else if (a.saida === "h") d = `M ${a.x} ${a.y} H ${b.x} V ${b.y}`;
+    else d = `M ${a.x} ${a.y} V ${b.y} H ${b.x}`;
     const nova = destaques.has([de, para].sort().join(" | "));
+    // contorno claro por baixo, para fio preto aparecer na mesa escura
+    const contorno = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    contorno.setAttribute("d", d);
+    contorno.setAttribute("stroke", nova ? "rgba(232,163,61,.55)" : "rgba(255,255,255,.28)");
+    contorno.setAttribute("stroke-width", nova ? 7 : 4.2);
+    svg.appendChild(contorno);
+    const caminho = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    caminho.setAttribute("d", d);
     caminho.setAttribute("stroke", CORES[cor] || cor || CORES[""]);
-    caminho.setAttribute("stroke-width", nova ? 4 : 2.2);
-    if (nova) caminho.setAttribute("stroke-dasharray", "8 4");
+    caminho.setAttribute("stroke-width", nova ? 3.2 : 2.2);
     const titulo = document.createElementNS("http://www.w3.org/2000/svg", "title");
     titulo.textContent = de + " ligado em " + para + (nova ? " (nova)" : "");
     caminho.appendChild(titulo);
     svg.appendChild(caminho);
+    for (const ponta of [a, b]) {  // ponto na ponta do fio, para ver em qual pino ele entra
+      const bola = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      const attrs = { cx: ponta.x, cy: ponta.y, r: 2.6, fill: CORES[cor] || cor || CORES[""],
+                      stroke: "rgba(255,255,255,.6)", "stroke-width": 1 };
+      for (const [k, v] of Object.entries(attrs)) bola.setAttribute(k, v);
+      svg.appendChild(bola);
+    }
   }
 
   // enquadra tudo na área visível
@@ -195,13 +226,17 @@ async function desenhar() {
   for (const p of pontos) { x0 = Math.min(x0, p.x); y0 = Math.min(y0, p.y); x1 = Math.max(x1, p.x); y1 = Math.max(y1, p.y); }
   const area = document.getElementById("area");
   const margem = 20;
-  const escala = Math.min((area.clientWidth - 2 * margem) / (x1 - x0), (area.clientHeight - 2 * margem) / (y1 - y0), 2.5);
+  const escala = Math.min((area.clientWidth - 2 * margem) / (x1 - x0), (area.clientHeight - 2 * margem) / (y1 - y0), 1.6);
   const sobraX = (area.clientWidth - (x1 - x0) * escala) / 2, sobraY = (area.clientHeight - (y1 - y0) * escala) / 2;
   mesa.style.transform = `translate(${sobraX - x0 * escala}px, ${sobraY - y0 * escala}px) scale(${escala})`;
   if (faltando.length) document.getElementById("aviso").textContent = "Pinos não encontrados no desenho: " + faltando.join(", ");
 }
 
-customElements.whenDefined("wokwi-led").then(desenhar).catch((e) => {
+if (!(DADOS.diagrama.parts || []).length) {
+  document.getElementById("area").insertAdjacentHTML("beforeend",
+    '<div id="vazia"><b>Bancada vazia</b><span>Descreva no chat o circuito que você quer montar.<br>' +
+    'As peças e os fios aparecem aqui conforme o assistente monta.</span></div>');
+} else customElements.whenDefined("wokwi-led").then(desenhar).catch((e) => {
   document.getElementById("aviso").textContent = "Não foi possível desenhar a bancada: " + e;
 });
 </script></body></html>"""
