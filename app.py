@@ -22,9 +22,18 @@ load_dotenv(RAIZ / ".env")
 from agente.grafo import criar_modelo, responder  # noqa: E402
 from agente.guardrails import remover_segredos  # noqa: E402
 from interface import conversas  # noqa: E402
-from interface.acompanhamento import PASTA_PROJETOS, etapas_visiveis, ler_diagrama, registrar, rotulo  # noqa: E402
+from interface.acompanhamento import (  # noqa: E402
+    PASTA_PROJETOS,
+    etapas_visiveis,
+    ler_diagrama,
+    registrar,
+    rotulo,
+    serial_sem_boot,
+)
+from interface.exportar import NOVO_PROJETO_ESP32, pacote_wokwi  # noqa: E402
 from interface.painel import html_bancada, ligacoes, telas_atualizadas  # noqa: E402
-from servidor_bancada.servidor import gerar_bom  # noqa: E402
+from interface.simulacao import SimulacaoAoVivo, controles_do_diagrama, leds_do_diagrama  # noqa: E402
+from servidor_bancada.servidor import compilar, gerar_bom  # noqa: E402
 
 st.set_page_config(page_title="Assistente de Bancada", page_icon=":material/memory:", layout="wide")
 
@@ -159,25 +168,136 @@ with st.sidebar:
 def pilulas(conversa):
     itens = etapas_visiveis(conversa.get("etapas"))
     if not itens:
-        texto = "Aguardando a montagem" if conversa.get("projeto") else "Nenhum circuito ainda"
+        texto = "Projeto salvo" if conversa.get("projeto") else "Nenhum circuito ainda"
         itens = [(texto, "neutra")]
     return "".join(f'<span class="pilula {situacao}">{texto}</span>' for texto, situacao in itens)
 
 
-def desenhar_bancada(alvo, conversa):
+# ---------- simulação ao vivo ----------
+
+@st.cache_resource
+def simulacoes():
+    """id da conversa -> SimulacaoAoVivo. Vale entre as reexecuções do script."""
+    return {}
+
+
+def parar_simulacao(id_):
+    sim = simulacoes().pop(id_, None)
+    if sim:
+        sim.parar()
+
+
+def precisa_compilar(projeto):
+    pasta = PASTA_PROJETOS / projeto
+    firmware = next((pasta / "build").glob("*.merged.bin"), None) if (pasta / "build").exists() else None
+    sketches = [f.stat().st_mtime for f in pasta.glob("*.ino")]
+    return firmware is None or (sketches and firmware.stat().st_mtime < max(sketches))
+
+
+def ligar_simulacao(conversa, diagrama):
+    projeto = conversa["projeto"]
+    if precisa_compilar(projeto):
+        with st.spinner("Compilando o firmware antes de simular..."):
+            r = compilar(projeto)
+        if not r.get("sucesso"):
+            erros = "; ".join(f"linha {e['linha']}: {e['mensagem']}" for e in r.get("erros", [])[:3])
+            st.session_state.aviso_simulacao = "O projeto não compilou. " + (erros or r.get("erro", ""))
+            return
+    simulacoes()[conversa["id"]] = SimulacaoAoVivo(projeto, PASTA_PROJETOS / projeto, leds_do_diagrama(diagrama))
+
+
+def enviar_controle(id_, parte, controle, chave):
+    sim = simulacoes().get(id_)
+    if sim:
+        sim.controlar(parte, controle, st.session_state[chave])
+
+
+@st.fragment(run_every=1.0)
+def bancada_ao_vivo(id_, diagrama, telas):
+    """Circuito, controles e serial da simulação ligada; atualiza a cada segundo."""
+    sim = simulacoes().get(id_)
+    if sim is None:
+        st.rerun()
+    estado = sim.estado()
+    if not estado["ativa"] and not estado["iniciando"]:
+        simulacoes().pop(id_, None)
+        st.session_state.aviso_simulacao = estado["erro"] or "Simulação desligada."
+        st.rerun()
+
+    components.html(html_bancada(diagrama, telas, None, altura=400, acesos=estado["acesos"]), height=410)
+    if estado["iniciando"]:
+        st.caption("Ligando a simulação no Wokwi...")
+    else:
+        minutos, segundos = divmod(estado["restante"], 60)
+        st.caption(f"Ao vivo. Mexa nos controles e veja a serial e os LEDs. Desliga sozinha em {minutos}:{segundos:02d}.")
+
+    controles = controles_do_diagrama(diagrama)
+    if controles:
+        colunas = st.columns(min(len(controles), 3))
+        for i, (parte, tipo, lista) in enumerate(controles):
+            with colunas[i % len(colunas)]:
+                st.markdown(f"**{parte}**")
+                if not lista:  # botão
+                    st.button(f"Apertar {parte}", key=f"btn-{id_}-{parte}", icon=":material/touch_app:",
+                              on_click=lambda p=parte: simulacoes()[id_].apertar(p) if id_ in simulacoes() else None)
+                for controle, rotulo_, minimo, maximo, passo, inicial in lista:
+                    chave = f"ctl-{id_}-{parte}-{controle}"
+                    st.slider(rotulo_, minimo, maximo, inicial, passo, key=chave,
+                              on_change=enviar_controle, args=(id_, parte, controle, chave))
+    linhas = [l for l in serial_sem_boot(estado["serial"]).splitlines() if l.strip()]
+    st.code("\n".join(linhas[-8:]) or "(sem saída ainda)", language=None)
+
+
+def barra_da_bancada(conversa, diagrama):
+    projeto = conversa["projeto"]
+    ao_vivo = conversa["id"] in simulacoes()
+    c1, c2 = st.columns(2)
+    if ao_vivo:
+        c1.button("Parar simulação", icon=":material/stop:", use_container_width=True,
+                  on_click=parar_simulacao, args=(conversa["id"],))
+    elif c1.button("Simular ao vivo", icon=":material/play_arrow:", type="primary", use_container_width=True):
+        ligar_simulacao(conversa, diagrama)
+        st.rerun()
+    with c2.popover("Levar para o Wokwi", icon=":material/open_in_new:", use_container_width=True):
+        nome, dados = pacote_wokwi(PASTA_PROJETOS / projeto)
+        st.markdown(
+            "O Wokwi não abre projetos de fora por link, então são três passos:\n"
+            "1. Baixe os arquivos.\n"
+            "2. Abra um projeto ESP32 novo no Wokwi.\n"
+            "3. Cole `sketch.ino` e `diagram.json` nas abas de mesmo nome e crie o `libraries.txt` "
+            "(menu de arquivos, *New file*) com o conteúdo do arquivo baixado."
+        )
+        st.download_button("Baixar arquivos (.zip)", dados, nome, "application/zip", icon=":material/download:",
+                           use_container_width=True)
+        st.link_button("Abrir projeto ESP32 no Wokwi", NOVO_PROJETO_ESP32, icon=":material/open_in_new:",
+                       use_container_width=True)
+        st.caption(f"No VS Code com a extensão do Wokwi, a pasta `projetos/{projeto}` já abre direto "
+                   "(Wokwi: Start Simulator).")
+
+
+def desenhar_bancada(alvo, conversa, durante_resposta=False):
     projeto = conversa.get("projeto")
     diagrama = ler_diagrama(projeto) if projeto else None
+    ao_vivo = conversa["id"] in simulacoes() and not durante_resposta
     with alvo.container():
         nome = f"<span>projetos/{projeto}</span>" if projeto else ""
+        extra = '<span class="pilula ok">Simulação ao vivo</span>' if ao_vivo else ""
         st.markdown(f'<div class="titulo-bancada"><b>Bancada</b>{nome}</div>'
-                    f'<div class="etapas">{pilulas(conversa)}</div>', unsafe_allow_html=True)
+                    f'<div class="etapas">{pilulas(conversa)}{extra}</div>', unsafe_allow_html=True)
+        if aviso := st.session_state.pop("aviso_simulacao", None):
+            st.toast(aviso, icon=":material/info:")
+        if diagrama and not durante_resposta:
+            barra_da_bancada(conversa, diagrama)
         telas = telas_atualizadas(PASTA_PROJETOS / projeto) if diagrama else {}
         aba_circuito, aba_ligacoes, aba_materiais, aba_codigo, aba_serial = st.tabs(
             ["Circuito", "Ligações", "Materiais", "Código", "Serial"])
         with aba_circuito:
-            components.html(html_bancada(diagrama, telas, conversa.get("destaques")), height=490)
-            if conversa.get("destaques") and diagrama:
-                st.caption("Contorno laranja: o que mudou na última resposta.")
+            if ao_vivo:
+                bancada_ao_vivo(conversa["id"], diagrama, telas)
+            else:
+                components.html(html_bancada(diagrama, telas, conversa.get("destaques")), height=490)
+                if conversa.get("destaques") and diagrama:
+                    st.caption("Contorno laranja: o que mudou na última resposta.")
         if not diagrama:
             for aba in (aba_ligacoes, aba_materiais, aba_codigo, aba_serial):
                 aba.caption("Aparece quando houver um circuito na bancada.")
@@ -275,6 +395,8 @@ def responder_pedido(conversa, pedido, area_mensagens, painel, abertura):
     chamadas = {}
 
     abertura.empty()  # tira as boas-vindas assim que o pedido sai
+    # o agente pode mudar o projeto e simular por conta própria: desliga a simulação ao vivo
+    parar_simulacao(conversa["id"])
     with area_mensagens:
         with st.chat_message("user"):
             st.markdown(pedido)
@@ -291,7 +413,7 @@ def responder_pedido(conversa, pedido, area_mensagens, painel, abertura):
                     elif isinstance(m, ToolMessage):
                         c = chamadas.get(m.tool_call_id, {})
                         if registrar(conversa, m.name, c.get("args"), m.text, m.status == "error"):
-                            desenhar_bancada(painel, conversa)
+                            desenhar_bancada(painel, conversa, durante_resposta=True)
                     elif isinstance(m, HumanMessage) and m.additional_kwargs.get("verificacao"):
                         status.write("Conferindo a resposta: um passo não foi confirmado, refazendo")
                 if no == "agente" and not any(getattr(m, "tool_calls", None) for m in mensagens):

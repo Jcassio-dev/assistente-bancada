@@ -90,3 +90,31 @@ def test_id_invalido_nao_vira_caminho(tmp_path, monkeypatch):
 def test_titulo_do_pedido():
     assert conversas.titulo_do_pedido("Monte um LED") == "Monte um LED"
     assert conversas.titulo_do_pedido("x" * 60).endswith("...") and len(conversas.titulo_do_pedido("x" * 60)) == 42
+
+
+def test_controles_e_leds_do_diagrama():
+    from interface.simulacao import controles_do_diagrama, leds_do_diagrama
+
+    diagrama = {"parts": [{"id": "esp", "type": "board-esp32-devkit-c-v4"}, {"id": "dht1", "type": "wokwi-dht22"},
+                          {"id": "btn1", "type": "wokwi-pushbutton"}, {"id": "led1", "type": "wokwi-led"}]}
+    controles = controles_do_diagrama(diagrama)
+    assert [(i, t) for i, t, _ in controles] == [("dht1", "wokwi-dht22"), ("btn1", "wokwi-pushbutton")]
+    assert [c[0] for c in controles[0][2]] == ["temperature", "humidity"]
+    assert leds_do_diagrama(diagrama) == ["led1"]
+
+
+def test_pacote_wokwi(tmp_path):
+    import io
+    import zipfile
+
+    from interface.exportar import bibliotecas_do_sketch, pacote_wokwi
+
+    (tmp_path / "termo.ino").write_text('#include <DHT.h>\n#include <Wire.h>\n#include "Adafruit_SSD1306.h"\n')
+    (tmp_path / "diagram.json").write_text("{}")
+    assert bibliotecas_do_sketch((tmp_path / "termo.ino").read_text()) == [
+        "DHT sensor library", "Adafruit SSD1306", "Adafruit Unified Sensor"]
+    nome, dados = pacote_wokwi(tmp_path)
+    z = zipfile.ZipFile(io.BytesIO(dados))
+    assert nome == f"{tmp_path.name}-wokwi.zip"
+    assert sorted(z.namelist()) == ["diagram.json", "libraries.txt", "sketch.ino"]
+    assert "DHT sensor library" in z.read("libraries.txt").decode()

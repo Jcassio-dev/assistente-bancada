@@ -223,7 +223,9 @@ Streamlit (`app.py` e a pasta `interface/`), em tema escuro, com o chat à esque
 - **Código:** o sketch atual.
 - **Serial:** a última saída lida da simulação, sem o texto de boot do ESP32.
 
-A simulação continua rodando no `wokwi-cli`: a bancada mostra o circuito e os resultados, mas não é um simulador dentro da página.
+**Simulação ao vivo** (`interface/simulacao.py`): o botão "Simular ao vivo" compila o projeto se o sketch mudou e liga a simulação no `wokwi-cli`. Aparecem controles conforme as peças do circuito (temperatura e umidade do DHT22, distância do HC-SR04, potenciômetro, NTC, LDR, botão), enviados com `wokwi_set_control`. A serial atualiza a cada segundo, e os LEDs acendem no desenho conforme o estado real dos pinos (`wokwi_read_pin`). Num teste pelo navegador, subir a temperatura do termômetro de 24 para 36 °C acendeu os LEDs de alerta. Como o Streamlit reexecuta o script a cada interação, a simulação roda numa thread com laço asyncio próprio, que mantém a sessão MCP aberta e recebe comandos por fila. Para não gastar minutos do Wokwi, ela desliga sozinha depois de 3 minutos, 20 segundos depois de a página ser fechada ou quando um novo pedido é enviado ao agente. O display não atualiza ao vivo, porque o `wokwi_take_screenshot` corta a imagem.
+
+**Levar para o Wokwi** (`interface/exportar.py`): o wokwi.com não abre projetos de fora por link, então a bancada baixa um `.zip` com `sketch.ino`, `diagram.json` e `libraries.txt` (bibliotecas deduzidas dos `#include`) e abre um projeto ESP32 novo no site para colar. No VS Code com a extensão do Wokwi, a pasta `projetos/<nome>` já abre direto, porque tem `wokwi.toml`.
 
 Cada resposta tem o expander "Bastidores", com o que cada guardrail fez, as skills carregadas, as ferramentas chamadas (argumentos e resultado) e os trechos recuperados, com link para o documento, página e seção.
 
