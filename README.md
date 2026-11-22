@@ -69,7 +69,7 @@ flowchart TD
 | `ferramentas` | `ToolNode` que executa as chamadas de ferramenta e devolve o resultado ao agente. |
 | `guardrail_saida` | Marca ou reescreve valores técnicos que não vieram de documento nem de ferramenta, impede o vazamento de tokens e variáveis de ambiente e acrescenta o aviso de segurança quando o pedido envolve rede elétrica. |
 
-**Estado:** `messages` mais `bloqueado_por` (qual guardrail atuou), `alerta_seguranca` (pedido envolve rede elétrica) e `trechos_recuperados` (trechos do RAG usados pelo guardrail de saída e exibidos na interface).
+**Estado:** `messages` mais `bloqueado_por` (motivo do bloqueio na entrada), `alerta_seguranca` (pedido envolve rede elétrica), `trechos_recuperados` (trechos do RAG da resposta, usados pelo guardrail de saída e exibidos na interface) e `guardrails` (o que cada guardrail fez na resposta, para os bastidores). Os campos de controle são zerados a cada pergunta.
 
 ## Componentes e decisões de projeto
 
@@ -175,7 +175,9 @@ As skills ficam em `skills/<nome>/SKILL.md`, com frontmatter `name` e `descripti
 
 ### Memória
 
-Checkpointer do LangGraph com um `thread_id` por conversa. O botão "Nova conversa" gera um novo UUID. Como o Streamlit reexecuta o script a cada mensagem, o grafo e o checkpointer ficam em `@st.cache_resource`, para não serem recriados.
+Checkpointer do LangGraph (`InMemorySaver`) com um `thread_id` por conversa. O botão "Nova conversa" gera um novo UUID.
+
+As ferramentas do Wokwi só funcionam enquanto a sessão MCP está aberta, e ela é aberta a cada resposta. Por isso o grafo é montado de novo a cada resposta, com as ferramentas da sessão, e o checkpointer é criado uma vez só (`@st.cache_resource` na interface) e passado para todos os grafos. É o checkpointer que guarda as conversas; montar o grafo é barato.
 
 ### Guardrails
 
@@ -319,6 +321,14 @@ Avaliar a recuperação (mostra os trechos recuperados e a tabela comparando só
 
 ```bash
 python scripts/avaliar_rag.py
+```
+
+### 8. Conversar pelo terminal
+
+Precisa de `MODELO` e da chave do provedor no `.env`, além do `WOKWI_CLI_TOKEN`. Comandos: `/nova` começa outra conversa e `/sair` encerra. Cada resposta mostra as ferramentas chamadas e os trechos recuperados.
+
+```bash
+python scripts/conversar.py
 ```
 
 ## Casos de teste
