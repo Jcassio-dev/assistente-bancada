@@ -146,3 +146,27 @@ def test_saida_remove_token_e_avisa_valor_sem_fonte():
     assert "wok_" not in final and "[removido]" in final
     assert "Valor não confirmado em documento:** 80 mA" in final
     assert any("segredo" in g for g in estado["guardrails"])
+
+
+def test_bastidores_separa_skills_ferramentas_e_trechos():
+    from langchain_core.messages import ToolMessage
+
+    from agente.grafo import bastidores
+
+    novas = [
+        HumanMessage("monte um LED"),
+        AIMessage("", tool_calls=[{"name": "carregar_skill", "args": {"nome": "prototipar-circuito"}, "id": "1"},
+                                  {"name": "compilar", "args": {"projeto": "led"}, "id": "2"}]),
+        ToolMessage("corpo da skill", tool_call_id="1", name="carregar_skill"),
+        ToolMessage("erro na linha 3", tool_call_id="2", name="compilar", status="error"),
+        AIMessage("pronto"),
+    ]
+    estado = {"guardrails": ["entrada: classificador: ok"], "bloqueado_por": None,
+              "trechos_recuperados": [{"documento": "dht22", "titulo": "AM2302", "pagina": 2, "secao": "", "pontuacao": 0.8,
+                                       "url": "u", "texto": "longo"}]}
+    b = bastidores(novas, estado)
+    assert b["skills"] == ["prototipar-circuito"]
+    assert [f["nome"] for f in b["ferramentas"]] == ["compilar"]
+    assert b["ferramentas"][0]["erro"] is True and b["ferramentas"][0]["resultado"] == "erro na linha 3"
+    assert b["trechos"][0]["pagina"] == 2 and "texto" not in b["trechos"][0]
+    assert b["guardrails"] == ["entrada: classificador: ok"]

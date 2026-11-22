@@ -151,3 +151,53 @@ def montar_grafo(ferramentas, checkpointer=None, modelo=None, mensagem=None, cla
 
 def configuracao(thread_id):
     return {"configurable": {"thread_id": thread_id}, "recursion_limit": LIMITE_PASSOS}
+
+
+def bastidores(novas, estado):
+    """O que aconteceu numa resposta, para o terminal e a interface.
+
+    novas: mensagens acrescentadas nesta resposta; estado: valores finais do grafo.
+    """
+    chamadas = [c for m in novas for c in (getattr(m, "tool_calls", None) or [])]
+    resultados = {m.tool_call_id: m for m in novas if isinstance(m, ToolMessage)}
+    ferramentas = []
+    for c in chamadas:
+        resultado = resultados.get(c["id"])
+        ferramentas.append({
+            "nome": c["name"],
+            "argumentos": c["args"],
+            "resultado": resultado.text[:2000] if resultado else "",
+            "erro": bool(resultado and resultado.status == "error"),
+        })
+    return {
+        "ferramentas": [f for f in ferramentas if f["nome"] != "carregar_skill"],
+        "skills": [c["args"].get("nome") for c in chamadas if c["name"] == "carregar_skill"],
+        "guardrails": estado.get("guardrails") or [],
+        "bloqueado_por": estado.get("bloqueado_por"),
+        "trechos": [
+            {k: t.get(k) for k in ("documento", "titulo", "pagina", "secao", "pontuacao", "url")}
+            for t in estado.get("trechos_recuperados") or []
+        ],
+    }
+
+
+async def responder(checkpointer, thread_id, texto, modelo=None, ao_progresso=None):
+    """Roda uma resposta completa: abre as sessões MCP, monta o grafo e executa.
+
+    ao_progresso(texto): chamado a cada passo (ex.: "chamando compilar"), para a interface.
+    Devolve (texto da resposta, bastidores).
+    """
+    from agente.mcp_config import ferramentas_mcp
+
+    async with ferramentas_mcp() as mcp:
+        grafo = montar_grafo(ferramentas_locais() + mcp, checkpointer, modelo)
+        config = configuracao(thread_id)
+        antes = len((await grafo.aget_state(config)).values.get("messages", []))
+        async for passo in grafo.astream({"messages": [HumanMessage(texto)]}, config, stream_mode="updates"):
+            if ao_progresso:
+                for no, delta in passo.items():
+                    nomes = [c["name"] for m in (delta or {}).get("messages", []) for c in getattr(m, "tool_calls", None) or []]
+                    ao_progresso(f"chamando {', '.join(nomes)}" if nomes else no.replace("_", " "))
+        estado = (await grafo.aget_state(config)).values
+    novas = estado["messages"][antes:]
+    return novas[-1].text, bastidores(novas, estado)

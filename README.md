@@ -197,7 +197,9 @@ A resposta revisada substitui a original no estado (mesmo id de mensagem), para 
 
 ### Interface
 
-Streamlit com chat, botão de nova conversa na sidebar e um expander "Bastidores" em cada resposta. O expander mostra as ferramentas chamadas, as skills carregadas, o guardrail que atuou e os trechos e páginas recuperados. As ferramentas MCP são assíncronas, então o grafo roda com `ainvoke`/`astream` dentro de `asyncio.run`.
+Streamlit (`app.py`) com chat, botão de nova conversa na sidebar e um expander "Bastidores" em cada resposta. O expander mostra o que cada guardrail fez, as skills carregadas, as ferramentas chamadas (argumentos e resultado) e os trechos recuperados, com link para o documento, página e seção. Enquanto o agente trabalha, um indicador mostra o passo atual (ex.: "Chamando compilar...").
+
+As ferramentas MCP são assíncronas, então cada resposta roda com `astream` dentro de `asyncio.run`. O checkpointer e o modelo ficam em `@st.cache_resource`; o grafo é montado a cada resposta (veja Memória). O terminal (`scripts/conversar.py`) e a interface usam a mesma função `responder` de `agente/grafo.py`, então mostram os mesmos bastidores.
 
 ### Modelo
 
@@ -332,6 +334,14 @@ Precisa de `MODELO` e da chave do provedor no `.env`, além do `WOKWI_CLI_TOKEN`
 ```bash
 python scripts/conversar.py
 ```
+
+### 9. Interface
+
+```bash
+streamlit run app.py
+```
+
+Abre em <http://localhost:8501>. Precisa das mesmas variáveis do passo 8.
 
 ## Casos de teste
 
