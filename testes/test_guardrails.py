@@ -130,3 +130,19 @@ def test_revisar_saida_aviso_de_seguranca():
 def test_revisar_saida_sem_problemas_nao_muda_nada():
     texto, acoes = revisar_saida("LED de 20 mA.", fontes="corrente_ma: 20", alerta_seguranca=False, ambiente={})
     assert texto == "LED de 20 mA." and acoes == []
+
+
+def test_valor_confere_pelo_numero():
+    fontes = "Parameter: Power supply | Min: 3.3 | Typ: 5 | Max: 6 | Unit: V"
+    assert valores_sem_fonte("Típico 5,0 V e máximo 6,0 V; mínimo 3,30 V.", fontes) == []
+
+
+def test_classificador_recebe_pedido_anterior():
+    class Eco:
+        async def ainvoke(self, mensagens):
+            self.prompt = mensagens[-1].content
+            return AIMessage("ok")
+
+    modelo = Eco()
+    asyncio.run(avaliar_entrada(modelo, "e com 5 V?", anterior="LED no GPIO2 com 3,3 V"))
+    assert "LED no GPIO2 com 3,3 V" in modelo.prompt and "e com 5 V?" in modelo.prompt

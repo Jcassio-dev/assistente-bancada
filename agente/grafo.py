@@ -26,7 +26,7 @@ def criar_modelo():
     nome = os.environ.get("MODELO")
     if not nome:
         raise RuntimeError("Defina MODELO no .env, no formato provedor:nome (veja o .env.example).")
-    return init_chat_model(nome, temperature=0)
+    return init_chat_model(nome)
 
 
 def ferramentas_locais():
@@ -85,7 +85,9 @@ def montar_grafo(ferramentas, checkpointer=None, modelo=None, mensagem=None, cla
 
     async def guardrail_entrada(estado: Estado):
         # Também zera os campos de controle, que valem só para esta pergunta.
-        avaliacao = await avaliar_entrada(classificador, estado["messages"][-1].text)
+        pedidos = [m.text for m in estado["messages"] if isinstance(m, HumanMessage)]
+        anterior = pedidos[-2] if len(pedidos) > 1 else None
+        avaliacao = await avaliar_entrada(classificador, pedidos[-1], anterior)
         return {
             "bloqueado_por": avaliacao["bloqueado_por"],
             "alerta_seguranca": avaliacao["alerta_seguranca"],
