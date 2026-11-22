@@ -246,6 +246,26 @@ def test_salvar_projeto_sem_placa(tmp_path, monkeypatch):
     assert "Nenhuma placa suportada" in r["erro"]
 
 
+def test_salvar_projeto_valida_antes_de_salvar(tmp_path, monkeypatch):
+    monkeypatch.setattr(servidor, "PASTA_PROJETOS", tmp_path)
+    d = json.loads((EXEMPLO / "diagram.json").read_text())
+    d["connections"] = [c for c in d["connections"] if not c[0].startswith("r1:2")]
+    d["connections"].append(["esp:2", "led1:A", "green", []])  # LED sem resistor
+    d["parts"] = [p for p in d["parts"] if p["id"] != "r1"]
+    r = salvar_projeto("sem-resistor", json.dumps(d), "")
+    assert "Corrija" in r["erro"] and r["erros"]
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_salvar_projeto_remove_pontos_de_fio_invalidos(tmp_path, monkeypatch):
+    monkeypatch.setattr(servidor, "PASTA_PROJETOS", tmp_path)
+    d = json.loads((EXEMPLO / "diagram.json").read_text())
+    d["connections"][2][3] = ["-20us", "40mm", "h10", "v-5.5", "*"]
+    salvar_projeto("fios", json.dumps(d), "")
+    salvo = json.loads((tmp_path / "fios" / "diagram.json").read_text())
+    assert salvo["connections"][2][3] == ["h10", "v-5.5", "*"]
+
+
 # ---------- resumir_erros_compilacao ----------
 
 SAIDA_GCC = """\

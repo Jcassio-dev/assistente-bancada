@@ -358,10 +358,21 @@ def _pasta_projeto(nome):
     return PASTA_PROJETOS / nome, None
 
 
+REGEX_PONTO_FIO = re.compile(r"^(\*|[hv]-?\d+(\.\d+)?)$")
+
+
+def _limpar_pontos_dos_fios(diagrama):
+    """Remove pontos de fio fora do formato do Wokwi ("h10", "v-20", "*"). Só mudam o desenho."""
+    for conexao in diagrama.get("connections", []):
+        if len(conexao) >= 4 and isinstance(conexao[3], list):
+            conexao[3] = [p for p in conexao[3] if isinstance(p, str) and REGEX_PONTO_FIO.match(p)]
+
+
 @mcp.tool()
 def salvar_projeto(nome: str, diagram_json: str, codigo: str) -> dict:
     """Salva um projeto em projetos/<nome>/: sketch .ino, diagram.json e wokwi.toml.
 
+    Roda o validar_diagrama antes e não salva se houver erros.
     O wokwi.toml aponta para o firmware em build/, gerado pela ferramenta compilar.
     Devolve a pasta do projeto, que é o projectPath do wokwi_start_simulation.
     """
@@ -374,6 +385,11 @@ def salvar_projeto(nome: str, diagram_json: str, codigo: str) -> dict:
     placa = _placa_do_diagrama(diagrama)
     if placa is None:
         return {"erro": f"Nenhuma placa suportada no diagrama. O projeto trabalha só com ESP32: {', '.join(PLACAS)}."}
+    validacao = validar_diagrama(diagram_json)
+    if not validacao["valido"]:
+        return {"erro": "O diagrama tem erros. Corrija e chame salvar_projeto de novo.",
+                "erros": validacao["erros"], "avisos": validacao["avisos"]}
+    _limpar_pontos_dos_fios(diagrama)
 
     pasta.mkdir(parents=True, exist_ok=True)
     (pasta / f"{nome}.ino").write_text(codigo, encoding="utf-8")
@@ -387,6 +403,7 @@ def salvar_projeto(nome: str, diagram_json: str, codigo: str) -> dict:
         "pasta": str(pasta),
         "arquivos": [f"{nome}.ino", "diagram.json", "wokwi.toml"],
         "placa": placa["type"],
+        "avisos_validacao": validacao["avisos"],
         "proximo_passo": f"compilar('{nome}') e depois wokwi_start_simulation(projectPath='{pasta}')",
     }
 
