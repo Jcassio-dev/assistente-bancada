@@ -203,6 +203,8 @@ Streamlit com chat, botão de nova conversa na sidebar e um expander "Bastidores
 
 O modelo é criado com `init_chat_model` a partir da variável de ambiente `MODELO` (formato `provedor:nome-do-modelo`), para trocar de modelo sem mexer no código.
 
+Usamos o `google_genai:gemini-3.5-flash-lite`, pelo custo baixo; o `gemini-2.5-flash-lite` já não é liberado para contas novas. O mesmo modelo faz a classificação do guardrail de entrada, numa chamada sem ferramentas. Para trocar de provedor, basta mudar `MODELO`, a chave no `.env` e instalar o pacote `langchain-<provedor>`.
+
 ## Instalação e execução
 
 Testado no Linux, com as versões abaixo. O `wokwi-cli mcp` é experimental, então use exatamente estas versões.
@@ -249,7 +251,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Edite o `.env` e preencha `WOKWI_CLI_TOKEN` com um token gerado em <https://wokwi.com/dashboard/ci>. Os scripts Python leem o `.env` com `python-dotenv`. Para usar o `wokwi-cli` direto no terminal, carregue as variáveis no shell:
+Edite o `.env` e preencha `WOKWI_CLI_TOKEN` com um token gerado em <https://wokwi.com/dashboard/ci> e `GOOGLE_API_KEY` com uma chave gerada em <https://aistudio.google.com/apikey>. Os scripts Python leem o `.env` com `python-dotenv`. Para usar o `wokwi-cli` direto no terminal, carregue as variáveis no shell:
 
 ```bash
 set -a; source .env; set +a
