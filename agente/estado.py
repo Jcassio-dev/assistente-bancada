@@ -14,3 +14,6 @@ class Estado(MessagesState):
     # O que os guardrails fizeram nesta resposta (ex.: "entrada: classificador: ok",
     # "saída: aviso de rede elétrica"), para os bastidores da interface.
     guardrails: list[str]
+    # O guardrail de saída já devolveu a resposta ao agente nesta pergunta
+    # (saída da serial inventada). Só devolve uma vez, para não entrar em ciclo.
+    revisao_pedida: bool

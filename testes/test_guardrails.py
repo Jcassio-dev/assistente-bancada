@@ -146,3 +146,24 @@ def test_classificador_recebe_pedido_anterior():
     modelo = Eco()
     asyncio.run(avaliar_entrada(modelo, "e com 5 V?", anterior="LED no GPIO2 com 3,3 V"))
     assert "LED no GPIO2 com 3,3 V" in modelo.prompt and "e com 5 V?" in modelo.prompt
+
+
+def test_leitura_de_sensor_inventada_e_marcada():
+    fontes = "termometro iniciado\nSketch uses 308200 bytes (23%) of program storage space."
+    resposta = "Saída: Umidade: 40.00%  |  Temperatura: 24.00C. O programa usa 23% da flash."
+    assert valores_sem_fonte(resposta, fontes) == ["40.00%", "24.00C"]
+
+
+def test_serial_inventada_e_detectada():
+    from agente.guardrails import linhas_serial_sem_fonte
+
+    resposta = "Código:\n```cpp\nSerial.println(\"oi\");\n```\nSaída da serial:\n```text\nLED: LIGADO\nLED: DESLIGADO\n```"
+    assert linhas_serial_sem_fonte(resposta, "") == ["LED: LIGADO", "LED: DESLIGADO"]
+    assert linhas_serial_sem_fonte(resposta, "boot...\nLED: LIGADO\nLED:   DESLIGADO\n") == []
+
+
+def test_bloco_sem_relacao_com_serial_nao_e_conferido():
+    from agente.guardrails import linhas_serial_sem_fonte
+
+    resposta = "Instale as bibliotecas:\n```\narduino-cli lib install \"DHT sensor library\"\n```"
+    assert linhas_serial_sem_fonte(resposta, "") == []

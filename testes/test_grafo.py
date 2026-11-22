@@ -170,3 +170,58 @@ def test_bastidores_separa_skills_ferramentas_e_trechos():
     assert b["ferramentas"][0]["erro"] is True and b["ferramentas"][0]["resultado"] == "erro na linha 3"
     assert b["trechos"][0]["pagina"] == 2 and "texto" not in b["trechos"][0]
     assert b["guardrails"] == ["entrada: classificador: ok"]
+
+
+TEXTO_SERIAL = "Simulei. Saída da serial:\n```text\nLED: LIGADO\n```"
+
+
+def serial_inventada():
+    return AIMessage(TEXTO_SERIAL)  # instância nova: o add_messages guarda o id na mensagem
+
+
+def test_serial_inventada_volta_ao_agente_uma_vez():
+    modelo = ModeloRoteiro(roteiro=[serial_inventada(), AIMessage("Não simulei o circuito; só montei o código.")])
+    grafo = montar_grafo([buscar_documentos], InMemorySaver(), modelo, mensagem="s", classificador=classificador_ok())
+    estado = conversar(grafo, "a", "monte um LED piscando")
+    assert estado["messages"][-1].content == "Não simulei o circuito; só montei o código."
+    revisao = modelo.recebidas[1][-1]
+    assert revisao.type == "human" and "Verificação automática" in revisao.content
+    assert any("devolvida ao agente" in g for g in estado["guardrails"])
+
+
+def test_serial_inventada_duas_vezes_ganha_aviso():
+    modelo = ModeloRoteiro(roteiro=[serial_inventada(), serial_inventada()])
+    grafo = montar_grafo([buscar_documentos], InMemorySaver(), modelo, mensagem="s", classificador=classificador_ok())
+    estado = conversar(grafo, "a", "monte um LED piscando")
+    assert "não veio da simulação" in estado["messages"][-1].content
+    assert len(modelo.recebidas) == 2  # só uma revisão
+
+
+def test_serial_que_veio_da_ferramenta_passa():
+    @tool
+    def esperar_serial(texto: str, segundos: int = 20) -> str:
+        """Serial falsa."""
+        return 'Texto "LED" encontrado na serial.\n\nboot\nLED: LIGADO\n'
+
+    modelo = ModeloRoteiro(roteiro=[chamada("esperar_serial", {"texto": "LED"}), serial_inventada()])
+    grafo = montar_grafo([buscar_documentos, esperar_serial], InMemorySaver(), modelo, mensagem="s",
+                         classificador=classificador_ok())
+    estado = conversar(grafo, "a", "monte um LED piscando")
+    assert estado["messages"][-1].content == TEXTO_SERIAL
+    assert estado["revisao_pedida"] is False
+
+
+def test_revisao_nao_conta_como_pedido_anterior_do_usuario():
+    modelo = ModeloRoteiro(roteiro=[serial_inventada(), AIMessage("ok"), AIMessage("ok 2")])
+    vistos = []
+
+    class Classificador(ModeloRoteiro):
+        def _generate(self, mensagens, stop=None, run_manager=None, **kwargs):
+            vistos.append(mensagens[-1].content)
+            return super()._generate(mensagens, stop, run_manager, **kwargs)
+
+    grafo = montar_grafo([buscar_documentos], InMemorySaver(), modelo, mensagem="s",
+                         classificador=Classificador(roteiro=[AIMessage("ok"), AIMessage("ok")]))
+    conversar(grafo, "a", "primeiro pedido")
+    conversar(grafo, "a", "segundo pedido")
+    assert "primeiro pedido" in vistos[1] and "Verificação automática" not in vistos[1]

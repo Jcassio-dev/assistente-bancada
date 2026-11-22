@@ -19,7 +19,7 @@ Peças conhecidas pelo `validar_diagrama`: `wokwi-led`, `wokwi-rgb-led`, `wokwi-
 
 ## 2. Consultar os datasheets
 
-Use `buscar_documentos` para cada fato elétrico que for usar: tensão de alimentação do sensor, pinos, protocolo, endereço I2C, restrições de GPIO. Escreva a consulta em inglês com os termos do datasheet e use o filtro `documento` quando souber a fonte, por exemplo:
+Faça pelo menos uma busca para **cada peça** do circuito, antes de montar: tensão de alimentação, pinos, protocolo, endereço I2C. Cada sensor tem o datasheet e a página do Wokwi (ex.: `dht22` e `wokwi-dht22`, `ssd1306` e `wokwi-ssd1306`). Use também `buscar_documentos` para as restrições de GPIO do ESP32. Escreva a consulta em inglês com os termos do datasheet e use o filtro `documento` quando souber a fonte, por exemplo:
 - `buscar_documentos("power supply voltage range", documento="dht22")`
 - `buscar_documentos("input only GPIO34 GPIO39", documento="esp32-datasheet")`
 - `buscar_documentos("default I2C address pins", documento="wokwi-ssd1306")`
@@ -59,6 +59,7 @@ Restrições do ESP32 que valem sempre conferir:
 
 Regras:
 - Sempre ligue `esp:TX` e `esp:RX` ao `$serialMonitor`, senão a serial não aparece na simulação.
+- Deixe a lista de pontos de cada fio vazia (`[]`). Pontos fora do formato do Wokwi (`h10`, `v-20`) são descartados.
 - Pinos do ESP32 DevKitC no Wokwi: números (`2`, `4`, `5`, `12` a `19`, `21` a `23`, `25` a `27`, `32` a `35`), `3V3`, `5V`, `GND.1`, `GND.2`, `GND.3`, `VP`, `VN`, `EN`, `TX`, `RX`.
 - Sensores que aceitam 3,3 V devem ser alimentados no `3V3`.
 - Todo LED leva resistor em série. Calcule com `resistor_led(tensao_fonte=3.3, tensao_led=..., corrente_ma=...)`.
@@ -71,7 +72,7 @@ Código (sketch Arduino para o core esp32):
 
 ## 4. Validar
 
-Chame `validar_diagrama(diagram_json)`. Corrija **todos** os `erros` e valide de novo até `valido` ser verdadeiro. Leia os `avisos` e corrija os que fazem sentido (ex.: sinal de sensor em 5 V indo direto para um GPIO). Só siga quando a validação passar.
+Chame `validar_diagrama(diagram_json)`. Corrija **todos** os `erros` e valide de novo até `valido` ser verdadeiro. Leia os `avisos` e corrija os que fazem sentido (ex.: sinal de sensor em 5 V indo direto para um GPIO). O `salvar_projeto` valida de novo e recusa salvar um diagrama com erros.
 
 ## 5. Salvar e compilar
 
@@ -88,9 +89,9 @@ Para circuitos com entrada do usuário, use `wokwi_set_control(partId, control, 
 
 ## 7. Ler a serial e conferir
 
-Chame `wokwi_read_serial()` e compare com o que foi definido na etapa 1.
-- Se a serial estiver vazia, espere e leia de novo (o boot do ESP32 leva cerca de 1 s simulado).
-- Se o texto não bater (leitura `nan` do sensor, valor fora da faixa, mensagem errada), descubra a causa (pino trocado no código ou no diagrama, alimentação, biblioteca), corrija, volte à etapa 4 e simule de novo.
+Chame `esperar_serial(texto=..., segundos=...)` com um texto que o sketch escreve quando funciona (ex.: `"Temperatura"`), e não `wokwi_read_serial` em sequência: o boot e os `delay()` do sketch levam alguns segundos, e a leitura imediata vem vazia. Some os `delay()` até a primeira leitura e dê folga (ex.: 20 s).
+- Se o texto não apareceu, **não diga que funcionou**. Descubra a causa (pino trocado no código ou no diagrama, alimentação, biblioteca, `delay` longo), corrija, volte à etapa 4 e simule de novo.
+- Se a leitura vier errada (`nan`, valor fora da faixa), trate como falha do mesmo jeito.
 - Termine com `wokwi_stop_simulation()`.
 
 ## 8. Responder ao usuário
@@ -98,6 +99,6 @@ Chame `wokwi_read_serial()` e compare com o que foi definido na etapa 1.
 Mostre:
 - a lista de ligações em texto (ex.: "DHT22 VCC no 3V3, SDA no GPIO15, GND no GND.1");
 - o código final;
-- o trecho da serial que comprova o funcionamento;
+- o trecho da serial que comprova o funcionamento, **copiado do resultado da ferramenta**. Nunca escreva uma saída da serial que não veio dela;
 - os documentos e páginas consultados para cada valor elétrico usado;
 - a pasta do projeto, para abrir no Wokwi.

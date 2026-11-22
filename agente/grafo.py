@@ -3,6 +3,7 @@
 START -> guardrail_entrada -(bloqueado)-> recusa -> END
                            -(ok)-> agente <-> ferramentas
                                    agente -(sem tool_calls)-> guardrail_saida -> END
+                                   guardrail_saida -(serial inventada, 1 vez)-> agente
 
 As ferramentas MCP só valem enquanto a sessão MCP está aberta (agente/mcp_config.py),
 então o grafo é montado a cada resposta com as ferramentas da sessão. O checkpointer
@@ -17,7 +18,14 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from agente.estado import Estado
-from agente.guardrails import avaliar_entrada, revisar_saida
+from agente.guardrails import (
+    AVISO_SERIAL_INVENTADA,
+    FERRAMENTAS_SERIAL,
+    MENSAGEM_REVISAO,
+    avaliar_entrada,
+    linhas_serial_sem_fonte,
+    revisar_saida,
+)
 
 LIMITE_PASSOS = 60  # recursion_limit: cada ida e volta agente/ferramentas gasta 2
 
@@ -49,6 +57,20 @@ APRESENTACAO = (
     "montando, validando, compilando e simulando) e a preparar o circuito para uma placa de "
     "circuito impresso. Se quiser, descreva o circuito que você quer montar."
 )
+
+
+def eh_revisao(m):
+    """Mensagem de verificação automática do guardrail de saída (não é do usuário)."""
+    return isinstance(m, HumanMessage) and m.additional_kwargs.get("verificacao")
+
+
+def mensagens_da_vez(estado):
+    """Mensagens desde o último pedido do usuário (a resposta em andamento)."""
+    mensagens = estado["messages"]
+    for i in range(len(mensagens) - 1, -1, -1):
+        if isinstance(mensagens[i], HumanMessage) and not eh_revisao(mensagens[i]):
+            return mensagens[i + 1:]
+    return mensagens
 
 
 def fontes_da_conversa(estado, mensagem):
@@ -85,13 +107,14 @@ def montar_grafo(ferramentas, checkpointer=None, modelo=None, mensagem=None, cla
 
     async def guardrail_entrada(estado: Estado):
         # Também zera os campos de controle, que valem só para esta pergunta.
-        pedidos = [m.text for m in estado["messages"] if isinstance(m, HumanMessage)]
+        pedidos = [m.text for m in estado["messages"] if isinstance(m, HumanMessage) and not eh_revisao(m)]
         anterior = pedidos[-2] if len(pedidos) > 1 else None
         avaliacao = await avaliar_entrada(classificador, pedidos[-1], anterior)
         return {
             "bloqueado_por": avaliacao["bloqueado_por"],
             "alerta_seguranca": avaliacao["alerta_seguranca"],
             "trechos_recuperados": [],
+            "revisao_pedida": False,
             "guardrails": [f"entrada: {avaliacao['motivo']}"],
         }
 
@@ -124,14 +147,34 @@ def montar_grafo(ferramentas, checkpointer=None, modelo=None, mensagem=None, cla
 
     async def guardrail_saida(estado: Estado):
         final = estado["messages"][-1]
+        guardrails = estado.get("guardrails") or []
+        serial_real = "\n".join(
+            m.text for m in mensagens_da_vez(estado) if isinstance(m, ToolMessage) and m.name in FERRAMENTAS_SERIAL
+        )
+        inventadas = linhas_serial_sem_fonte(final.text, serial_real)
+        if inventadas and not estado.get("revisao_pedida"):
+            # devolve ao agente uma vez, para ele simular de verdade ou corrigir a resposta
+            linhas = "; ".join(inventadas[:5])
+            return {
+                "messages": [HumanMessage(MENSAGEM_REVISAO.format(linhas=linhas), additional_kwargs={"verificacao": True})],
+                "revisao_pedida": True,
+                "guardrails": guardrails + [f"saída: serial sem fonte, resposta devolvida ao agente ({linhas})"],
+            }
+
         texto, acoes = revisar_saida(final.text, fontes_da_conversa(estado, mensagem), estado.get("alerta_seguranca"))
+        if inventadas:
+            texto += AVISO_SERIAL_INVENTADA.format(linhas="; ".join(inventadas[:5]))
+            acoes.append("aviso de serial sem fonte")
         if not acoes:
             return {}
         # mesmo id: o add_messages substitui a resposta em vez de acrescentar outra
         return {
             "messages": [AIMessage(texto, id=final.id)],
-            "guardrails": (estado.get("guardrails") or []) + [f"saída: {a}" for a in acoes],
+            "guardrails": guardrails + [f"saída: {a}" for a in acoes],
         }
+
+    def depois_da_saida(estado: Estado):
+        return "agente" if eh_revisao(estado["messages"][-1]) else END
 
     grafo = StateGraph(Estado)
     grafo.add_node("guardrail_entrada", guardrail_entrada)
@@ -145,7 +188,7 @@ def montar_grafo(ferramentas, checkpointer=None, modelo=None, mensagem=None, cla
     grafo.add_edge("recusa", END)
     grafo.add_conditional_edges("agente", depois_do_agente, ["ferramentas", "guardrail_saida"])
     grafo.add_edge("ferramentas", "agente")
-    grafo.add_edge("guardrail_saida", END)
+    grafo.add_conditional_edges("guardrail_saida", depois_da_saida, ["agente", END])
     return grafo.compile(checkpointer=checkpointer)
 
 

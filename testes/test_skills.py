@@ -52,6 +52,6 @@ def test_skills_do_projeto():
 def test_ferramenta_carregar_skill():
     texto = carregar_skill.invoke({"nome": "prototipar-circuito"})
     for etapa in ["buscar_documentos", "validar_diagrama", "salvar_projeto", "compilar",
-                  "wokwi_start_simulation", "wokwi_read_serial", "board-esp32-devkit-c-v4"]:
+                  "wokwi_start_simulation", "esperar_serial", "board-esp32-devkit-c-v4"]:
         assert etapa in texto
     assert "não existe" in carregar_skill.invoke({"nome": "inexistente"})

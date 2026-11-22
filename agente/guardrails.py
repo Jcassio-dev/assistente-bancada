@@ -128,9 +128,10 @@ def remover_segredos(texto, ambiente=None):
     return texto, total
 
 
-# Valor elétrico com unidade: 3,3 V, 40 mA, 10 µA, 220 Ω, 4,7 kΩ, 0,10 mm, 240 MHz.
+# Valor com unidade: 3,3 V, 40 mA, 10 µA, 220 Ω, 4,7 kΩ, 0,10 mm, 240 MHz e também
+# leituras como 24.00 °C e 40 %, para pegar uma saída de sensor que não veio da simulação.
 REGEX_VALOR = re.compile(
-    r"(?<![\w.,])(\d+(?:[.,]\d+)?)\s?(mA|µA|uA|nA|A|mV|kV|V|kΩ|MΩ|Ω|k?ohms?|mm|mils?|MHz|kHz|Hz|mW|W)(?![\w])"
+    r"(?<![\w.,])(\d+(?:[.,]\d+)?)\s?(mA|µA|uA|nA|A|mV|kV|V|kΩ|MΩ|Ω|k?ohms?|mm|mils?|MHz|kHz|Hz|mW|W|°C|ºC|C|%)(?![\w])"
 )
 # Pino citado como GPIO12, IO12 ou GPIO 12.
 REGEX_GPIO = re.compile(r"\bGPIO\s?(\d{1,2})\b", re.I)
@@ -190,3 +191,47 @@ def revisar_saida(resposta, fontes, alerta_seguranca, ambiente=None):
         resposta += AVISO_REDE_ELETRICA
         acoes.append("aviso de rede elétrica")
     return resposta, acoes
+
+
+# ---------- saída da serial inventada ----------
+
+FERRAMENTAS_SERIAL = ("esperar_serial", "wokwi_read_serial")
+LINGUAGENS_SAIDA = {"", "text", "txt", "plaintext", "serial", "console", "log", "output"}
+REGEX_BLOCO = re.compile(r"```([\w+-]*)[ \t]*\n(.*?)```", re.S)
+
+MENSAGEM_REVISAO = (
+    "[Verificação automática] A resposta mostra uma saída da serial que não veio de esperar_serial "
+    "nem de wokwi_read_serial nesta resposta (linhas não encontradas: {linhas}). Não descreva uma "
+    "simulação que não rodou. Execute o fluxo de verdade (salvar_projeto, compilar, "
+    "wokwi_start_simulation, esperar_serial) e mostre só a saída devolvida pela ferramenta, ou diga "
+    "claramente que não simulou."
+)
+AVISO_SERIAL_INVENTADA = (
+    "\n\n> **Atenção:** a saída da serial mostrada nesta resposta não veio da simulação "
+    "(linhas não encontradas no resultado das ferramentas: {linhas}). Não use como prova de que o circuito funciona."
+)
+
+
+def _sem_espacos_extras(texto):
+    return re.sub(r"\s+", " ", texto).strip()
+
+
+def linhas_serial_sem_fonte(resposta, saida_real):
+    """Linhas de blocos de 'saída da serial' da resposta que não aparecem na serial real.
+
+    Só confere blocos sem linguagem de programação (```text, ``` ...) com a palavra
+    "serial" no próprio bloco ou logo antes dele. Código (```cpp) não entra.
+    """
+    real = _sem_espacos_extras(saida_real)
+    faltando = []
+    for m in REGEX_BLOCO.finditer(resposta):
+        if m.group(1).lower() not in LINGUAGENS_SAIDA:
+            continue
+        antes = resposta[max(0, m.start() - 300):m.start()]
+        if "serial" not in (antes + m.group(2)).lower():
+            continue
+        for linha in m.group(2).splitlines():
+            linha = _sem_espacos_extras(linha)
+            if linha and linha not in ("...", "…") and linha not in real:
+                faltando.append(linha)
+    return faltando

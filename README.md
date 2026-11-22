@@ -58,6 +58,7 @@ flowchart TD
     A -- "tem tool_calls" --> F[ferramentas]
     F --> A
     A -- "sem tool_calls" --> GS[guardrail_saida]
+    GS -- "serial sem fonte (1 vez)" --> A
     GS --> FIM
 ```
 
@@ -67,9 +68,9 @@ flowchart TD
 | `recusa` | Responde com educação, explica por que não pode ajudar e diz o que o assistente faz. |
 | `agente` | Modelo com as ferramentas ligadas: RAG, `carregar_skill` e as ferramentas dos servidores MCP. |
 | `ferramentas` | `ToolNode` que executa as chamadas de ferramenta e devolve o resultado ao agente. |
-| `guardrail_saida` | Marca ou reescreve valores técnicos que não vieram de documento nem de ferramenta, impede o vazamento de tokens e variáveis de ambiente e acrescenta o aviso de segurança quando o pedido envolve rede elétrica. |
+| `guardrail_saida` | Devolve a resposta ao agente (uma vez) se ela mostra uma saída da serial que não veio da simulação, avisa sobre valores técnicos sem fonte, impede o vazamento de tokens e variáveis de ambiente e acrescenta o aviso de segurança quando o pedido envolve rede elétrica. |
 
-**Estado:** `messages` mais `bloqueado_por` (motivo do bloqueio na entrada), `alerta_seguranca` (pedido envolve rede elétrica), `trechos_recuperados` (trechos do RAG da resposta, usados pelo guardrail de saída e exibidos na interface) e `guardrails` (o que cada guardrail fez na resposta, para os bastidores). Os campos de controle são zerados a cada pergunta.
+**Estado:** `messages` mais `bloqueado_por` (motivo do bloqueio na entrada), `alerta_seguranca` (pedido envolve rede elétrica), `trechos_recuperados` (trechos do RAG da resposta, usados pelo guardrail de saída e exibidos na interface) , `guardrails` (o que cada guardrail fez na resposta, para os bastidores) e `revisao_pedida` (o guardrail de saída já devolveu a resposta ao agente nesta pergunta). Os campos de controle são zerados a cada pergunta.
 
 ## Componentes e decisões de projeto
 
@@ -151,14 +152,16 @@ Servidor FastMCP (stdio) em `servidor_bancada/servidor.py`. As funções são pu
 | `divisor_tensao(tensao_entrada, tensao_saida, r2_ohms)` | Calcula o R1 do divisor; o valor comercial é arredondado para cima, para a saída nunca passar da desejada (protege o GPIO de 3,3 V). |
 | `largura_trilha(corrente, espessura_cobre, elevacao_temperatura, camada)` | Largura mínima de trilha pela IPC-2221. |
 | `gerar_bom(diagram_json)` | Lista de materiais, agrupando peças iguais. |
-| `salvar_projeto(nome, diagram_json, codigo)` | Grava sketch, `diagram.json` e `wokwi.toml` em `projetos/<nome>/`; recusa nomes perigosos (`../`) e placas que não sejam ESP32. |
+| `salvar_projeto(nome, diagram_json, codigo)` | Roda o `validar_diagrama` e só grava se não houver erros: sketch, `diagram.json` e `wokwi.toml` em `projetos/<nome>/`. Recusa nomes perigosos (`../`) e placas que não sejam ESP32 e descarta pontos de fio fora do formato do Wokwi. |
 | `compilar(projeto)` | Chama o `arduino-cli` e devolve sucesso ou a lista resumida de erros (arquivo, linha, coluna e mensagem), para o agente corrigir o código. |
 
 ### Servidor MCP da comunidade: Wokwi
 
 Servidor oficial do Wokwi (`wokwi-cli mcp`, **versão 0.29.1 fixada**, porque o recurso é experimental). Ele precisa de `WOKWI_CLI_TOKEN` e expõe 11 ferramentas, entre elas `wokwi_start_simulation`, `wokwi_read_serial`, `wokwi_read_pin` e `wokwi_set_control`. A compilação não está entre elas, por isso existe a ferramenta `compilar` no servidor bancada.
 
-O fluxo do agente é `salvar_projeto`, `compilar`, `wokwi_start_simulation(projectPath)` e `wokwi_read_serial`, nessa ordem.
+O fluxo do agente é `salvar_projeto`, `compilar`, `wokwi_start_simulation(projectPath)` e `esperar_serial`, nessa ordem.
+
+`esperar_serial(texto, segundos)` é uma ferramenta nossa (`agente/mcp_config.py`) montada sobre o `wokwi_read_serial` da mesma sessão: lê a serial a cada segundo até o texto esperado aparecer ou o tempo acabar, e diz claramente quando não apareceu. Ela surgiu de uma falha real no fluxo do termômetro: o modelo chamava `wokwi_read_serial` várias vezes seguidas, antes da primeira leitura do sensor (o sketch espera alguns segundos), encerrava a simulação e descrevia uma leitura que não tinha vindo.
 
 Decisões e aprendizados:
 - No ESP32, o `wokwi.toml` precisa apontar para `build/<sketch>.ino.merged.bin`, que inclui bootloader e partições, e para o `.elf`. O `.bin` simples não dá boot.
@@ -192,6 +195,8 @@ São nós do grafo (`agente/guardrails.py`), e não instruções soltas na mensa
 - **Vazamento de chaves:** troca por `[removido]` os valores das variáveis de ambiente terminadas em `_TOKEN`, `_KEY`, `_SECRET` e `_PASSWORD`, além de formatos conhecidos de token (`wok_...`, `sk-...`, `AIza...`, `ghp_...`).
 - **Valores sem fonte:** procura na resposta valores elétricos com unidade (V, mA, µA, Ω, mm, MHz...) e pinos (`GPIO12`) e confere se o número aparece nas fontes da conversa: mensagem de sistema, pedidos do usuário, argumentos e resultados das ferramentas e trechos do RAG. O texto das respostas anteriores do próprio modelo não conta como fonte. Os valores que não aparecem são listados num aviso de "valor não confirmado em documento". A conferência é pelo número, não pelo contexto, então ela pega valores inventados, mas não um número certo usado no lugar errado.
 - **Aviso de segurança:** acrescentado à resposta quando `alerta_seguranca` está marcado.
+- **Saída da serial inventada:** os blocos de "saída da serial" da resposta são comparados, linha por linha, com o que `esperar_serial` e `wokwi_read_serial` devolveram nesta resposta. Se alguma linha não veio da simulação, o guardrail devolve a resposta ao agente com uma mensagem de verificação, uma vez só; se ele insistir, a resposta ganha um aviso. Num teste real, o agente afirmou ter simulado um LED sem chamar nenhuma ferramenta. Com a devolução, ele rodou o fluxo de verdade, o `salvar_projeto` recusou o LED sem resistor, ele calculou o resistor com `resistor_led`, salvou, compilou e mostrou a serial real.
+- Leituras de sensor (`°C`, `%`) também passam pela conferência de valores sem fonte.
 
 A resposta revisada substitui a original no estado (mesmo id de mensagem), para a memória guardar a versão que o usuário viu.
 
@@ -228,6 +233,13 @@ arduino-cli core install esp32:esp32@3.3.12 --additional-urls https://espressif.
 ```
 
 `$HOME/.local/bin` precisa estar no `PATH`.
+
+Bibliotecas usadas nos sketches gerados (DHT22 e display SSD1306):
+
+```bash
+arduino-cli lib install "DHT sensor library@1.4.7" "Adafruit Unified Sensor@1.1.15" \
+  "Adafruit SSD1306@2.5.17" "Adafruit GFX Library@1.13.0" "Adafruit BusIO@1.17.4"
+```
 
 ### 2. wokwi-cli
 

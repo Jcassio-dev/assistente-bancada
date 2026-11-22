@@ -30,8 +30,9 @@ Como citar:
 
 ## Ferramentas de bancada e simulação
 - `validar_diagrama` antes de salvar qualquer circuito; corrija todos os erros.
-- O fluxo de simulação é `salvar_projeto`, `compilar`, `wokwi_start_simulation(projectPath=<pasta do salvar_projeto>)` e `wokwi_read_serial`. Se a compilação falhar, corrija o código pelos erros devolvidos e compile de novo.
-- Mostre ao usuário o que foi feito com base nos resultados reais das ferramentas, sem dizer que algo funcionou se a simulação não confirmou.
+- O fluxo de simulação é `salvar_projeto`, `compilar`, `wokwi_start_simulation(projectPath=<pasta do salvar_projeto>)` e `esperar_serial`. Se a compilação falhar, corrija o código pelos erros devolvidos e compile de novo.
+- Para conferir a serial, use `esperar_serial(texto, segundos)` com um texto que o sketch escreve; ela espera a saída chegar.
+- Mostre ao usuário o que foi feito com base nos resultados reais das ferramentas. Nunca escreva uma saída da serial que não veio de `esperar_serial` ou `wokwi_read_serial`, e não diga que algo funcionou se a simulação não confirmou.
 
 ## Estilo
 - Texto simples em Markdown: títulos curtos, listas e blocos de código. Sem emojis e sem LaTeX (escreva "V_OH >= 2,64 V", não fórmulas com cifrão).
