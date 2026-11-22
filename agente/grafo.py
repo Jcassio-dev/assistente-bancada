@@ -250,7 +250,8 @@ def bastidores(novas, estado):
 async def responder(checkpointer, thread_id, texto, modelo=None, ao_progresso=None):
     """Roda uma resposta completa: abre as sessões MCP, monta o grafo e executa.
 
-    ao_progresso(texto): chamado a cada passo (ex.: "chamando compilar"), para a interface.
+    ao_progresso(no, mensagens): chamado a cada passo do grafo com o nome do nó e as
+    mensagens novas (chamadas de ferramenta e resultados), para a interface acompanhar.
     Devolve (texto da resposta, bastidores).
     """
     from agente.mcp_config import ferramentas_mcp
@@ -262,8 +263,7 @@ async def responder(checkpointer, thread_id, texto, modelo=None, ao_progresso=No
         async for passo in grafo.astream({"messages": [HumanMessage(texto)]}, config, stream_mode="updates"):
             if ao_progresso:
                 for no, delta in passo.items():
-                    nomes = [c["name"] for m in (delta or {}).get("messages", []) for c in getattr(m, "tool_calls", None) or []]
-                    ao_progresso(f"chamando {', '.join(nomes)}" if nomes else no.replace("_", " "))
+                    ao_progresso(no, (delta or {}).get("messages", []))
         estado = (await grafo.aget_state(config)).values
     novas = estado["messages"][antes:]
     return novas[-1].text, bastidores(novas, estado)
