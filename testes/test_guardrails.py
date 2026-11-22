@@ -167,3 +167,15 @@ def test_bloco_sem_relacao_com_serial_nao_e_conferido():
 
     resposta = "Instale as bibliotecas:\n```\narduino-cli lib install \"DHT sensor library\"\n```"
     assert linhas_serial_sem_fonte(resposta, "") == []
+
+
+def test_acoes_afirmadas_sem_ferramenta():
+    from agente.guardrails import acoes_sem_ferramenta
+
+    texto = "O circuito foi atualizado e compilado com sucesso. Simulei e a serial mostrou a temperatura."
+    assert len(acoes_sem_ferramenta(texto, set())) == 3
+    assert acoes_sem_ferramenta(texto, {"salvar_projeto", "compilar", "wokwi_start_simulation"}) == []
+    # descrever um circuito ou explicar não é afirmar uma ação
+    assert acoes_sem_ferramenta("O LED está ligado ao GPIO2 por um resistor de 220 Ω.", set()) == []
+    assert acoes_sem_ferramenta("Para ligar, conecte o VCC no 3V3.", set()) == []
+    assert acoes_sem_ferramenta("Não simulei o circuito e o projeto ainda não foi salvo.", set()) == []

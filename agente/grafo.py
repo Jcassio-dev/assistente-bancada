@@ -19,9 +19,10 @@ from langgraph.prebuilt import ToolNode
 
 from agente.estado import Estado
 from agente.guardrails import (
-    AVISO_SERIAL_INVENTADA,
+    AVISO_SEM_CONFIRMACAO,
     FERRAMENTAS_SERIAL,
     MENSAGEM_REVISAO,
+    acoes_sem_ferramenta,
     avaliar_entrada,
     linhas_serial_sem_fonte,
     revisar_saida,
@@ -71,6 +72,31 @@ def mensagens_da_vez(estado):
         if isinstance(mensagens[i], HumanMessage) and not eh_revisao(mensagens[i]):
             return mensagens[i + 1:]
     return mensagens
+
+
+def ferramentas_com_sucesso(mensagens):
+    """Nomes das ferramentas que rodaram com sucesso nestas mensagens."""
+    ok = set()
+    for m in mensagens:
+        if not isinstance(m, ToolMessage) or m.status == "error":
+            continue
+        texto = m.text
+        if m.name == "salvar_projeto" and '"pasta"' not in texto:
+            continue  # recusado (ex.: diagrama com erros)
+        if m.name == "compilar" and '"sucesso": true' not in texto:
+            continue
+        ok.add(m.name)
+    return ok
+
+
+def afirmacoes_sem_confirmacao(resposta, mensagens):
+    """Problemas da resposta: serial que não veio da simulação e ações sem a ferramenta."""
+    serial_real = "\n".join(m.text for m in mensagens if isinstance(m, ToolMessage) and m.name in FERRAMENTAS_SERIAL)
+    problemas = acoes_sem_ferramenta(resposta, ferramentas_com_sucesso(mensagens))
+    linhas = linhas_serial_sem_fonte(resposta, serial_real)
+    if linhas:
+        problemas.append("saída da serial que não veio da simulação (" + "; ".join(linhas[:5]) + ")")
+    return problemas
 
 
 def fontes_da_conversa(estado, mensagem):
@@ -148,23 +174,20 @@ def montar_grafo(ferramentas, checkpointer=None, modelo=None, mensagem=None, cla
     async def guardrail_saida(estado: Estado):
         final = estado["messages"][-1]
         guardrails = estado.get("guardrails") or []
-        serial_real = "\n".join(
-            m.text for m in mensagens_da_vez(estado) if isinstance(m, ToolMessage) and m.name in FERRAMENTAS_SERIAL
-        )
-        inventadas = linhas_serial_sem_fonte(final.text, serial_real)
-        if inventadas and not estado.get("revisao_pedida"):
-            # devolve ao agente uma vez, para ele simular de verdade ou corrigir a resposta
-            linhas = "; ".join(inventadas[:5])
+        problemas = afirmacoes_sem_confirmacao(final.text, mensagens_da_vez(estado))
+        if problemas and not estado.get("revisao_pedida"):
+            # devolve ao agente uma vez, para ele executar de verdade ou corrigir a resposta
             return {
-                "messages": [HumanMessage(MENSAGEM_REVISAO.format(linhas=linhas), additional_kwargs={"verificacao": True})],
+                "messages": [HumanMessage(MENSAGEM_REVISAO.format(problemas="; ".join(problemas)),
+                                          additional_kwargs={"verificacao": True})],
                 "revisao_pedida": True,
-                "guardrails": guardrails + [f"saída: serial sem fonte, resposta devolvida ao agente ({linhas})"],
+                "guardrails": guardrails + [f"saída: resposta devolvida ao agente ({'; '.join(problemas)})"],
             }
 
         texto, acoes = revisar_saida(final.text, fontes_da_conversa(estado, mensagem), estado.get("alerta_seguranca"))
-        if inventadas:
-            texto += AVISO_SERIAL_INVENTADA.format(linhas="; ".join(inventadas[:5]))
-            acoes.append("aviso de serial sem fonte")
+        if problemas:
+            texto += AVISO_SEM_CONFIRMACAO.format(problemas="; ".join(problemas))
+            acoes.append("aviso de afirmação sem confirmação")
         if not acoes:
             return {}
         # mesmo id: o add_messages substitui a resposta em vez de acrescentar outra

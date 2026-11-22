@@ -172,7 +172,7 @@ def test_bastidores_separa_skills_ferramentas_e_trechos():
     assert b["guardrails"] == ["entrada: classificador: ok"]
 
 
-TEXTO_SERIAL = "Simulei. Saída da serial:\n```text\nLED: LIGADO\n```"
+TEXTO_SERIAL = "Resultado. Saída da serial:\n```text\nLED: LIGADO\n```"
 
 
 def serial_inventada():
@@ -186,14 +186,14 @@ def test_serial_inventada_volta_ao_agente_uma_vez():
     assert estado["messages"][-1].content == "Não simulei o circuito; só montei o código."
     revisao = modelo.recebidas[1][-1]
     assert revisao.type == "human" and "Verificação automática" in revisao.content
-    assert any("devolvida ao agente" in g for g in estado["guardrails"])
+    assert any("devolvida ao agente" in g and "serial" in g for g in estado["guardrails"])
 
 
 def test_serial_inventada_duas_vezes_ganha_aviso():
     modelo = ModeloRoteiro(roteiro=[serial_inventada(), serial_inventada()])
     grafo = montar_grafo([buscar_documentos], InMemorySaver(), modelo, mensagem="s", classificador=classificador_ok())
     estado = conversar(grafo, "a", "monte um LED piscando")
-    assert "não veio da simulação" in estado["messages"][-1].content
+    assert "não veio da simulação" in estado["messages"][-1].content and "Atenção" in estado["messages"][-1].content
     assert len(modelo.recebidas) == 2  # só uma revisão
 
 
@@ -225,3 +225,25 @@ def test_revisao_nao_conta_como_pedido_anterior_do_usuario():
     conversar(grafo, "a", "primeiro pedido")
     conversar(grafo, "a", "segundo pedido")
     assert "primeiro pedido" in vistos[1] and "Verificação automática" not in vistos[1]
+
+
+def test_alteracao_afirmada_sem_salvar_volta_ao_agente():
+    modelo = ModeloRoteiro(roteiro=[AIMessage("O LED foi trocado para o GPIO18."), AIMessage("Ainda não alterei o projeto.")])
+    grafo = montar_grafo([buscar_documentos], InMemorySaver(), modelo, mensagem="s", classificador=classificador_ok())
+    estado = conversar(grafo, "a", "troque o LED para o GPIO18")
+    assert estado["messages"][-1].content == "Ainda não alterei o projeto."
+    assert "salvar_projeto não rodou" in modelo.recebidas[1][-1].content
+
+
+def test_alteracao_confirmada_por_salvar_projeto_passa():
+    @tool
+    def salvar_projeto(nome: str) -> str:
+        """Salvar falso."""
+        return '{"pasta": "/tmp/x"}'
+
+    modelo = ModeloRoteiro(roteiro=[chamada("salvar_projeto", {"nome": "x"}), AIMessage("O LED foi trocado para o GPIO18.")])
+    grafo = montar_grafo([buscar_documentos, salvar_projeto], InMemorySaver(), modelo, mensagem="s",
+                         classificador=classificador_ok())
+    estado = conversar(grafo, "a", "troque o LED para o GPIO18")
+    assert estado["messages"][-1].content == "O LED foi trocado para o GPIO18."
+    assert estado["revisao_pedida"] is False

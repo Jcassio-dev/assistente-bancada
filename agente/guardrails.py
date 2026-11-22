@@ -200,16 +200,48 @@ LINGUAGENS_SAIDA = {"", "text", "txt", "plaintext", "serial", "console", "log", 
 REGEX_BLOCO = re.compile(r"```([\w+-]*)[ \t]*\n(.*?)```", re.S)
 
 MENSAGEM_REVISAO = (
-    "[Verificação automática] A resposta mostra uma saída da serial que não veio de esperar_serial "
-    "nem de wokwi_read_serial nesta resposta (linhas não encontradas: {linhas}). Não descreva uma "
-    "simulação que não rodou. Execute o fluxo de verdade (salvar_projeto, compilar, "
-    "wokwi_start_simulation, esperar_serial) e mostre só a saída devolvida pela ferramenta, ou diga "
-    "claramente que não simulou."
+    "[Verificação automática] A resposta afirma coisas que as ferramentas não confirmaram nesta resposta: "
+    "{problemas}. Não descreva ações que você não executou. Chame as ferramentas necessárias (ex.: "
+    "salvar_projeto, compilar, wokwi_start_simulation, esperar_serial) e mostre só o que elas devolveram, "
+    "ou corrija a resposta dizendo claramente o que foi e o que não foi feito."
 )
-AVISO_SERIAL_INVENTADA = (
-    "\n\n> **Atenção:** a saída da serial mostrada nesta resposta não veio da simulação "
-    "(linhas não encontradas no resultado das ferramentas: {linhas}). Não use como prova de que o circuito funciona."
+AVISO_SEM_CONFIRMACAO = (
+    "\n\n> **Atenção:** esta resposta afirma coisas que as ferramentas não confirmaram: {problemas}. "
+    "Confira na bancada antes de confiar."
 )
+
+# Afirmações de ação no passado e a ferramenta que precisa ter rodado com sucesso nesta resposta.
+AFIRMACOES_DE_ACAO = {
+    "salvar_projeto": re.compile(
+        r"\b(foi|foram)\s+(\w+\s+){0,2}?(salv|alterad|trocad|atualizad|adicionad|modificad|corrigid|ajustad|"
+        r"removid|reposicionad|substitu[íi]d|movid)\w*|altera[çc][õo]es realizadas|modifica[çc][õo]es realizadas",
+        re.I,
+    ),
+    "compilar": re.compile(r"\bcompilei\b|\b(foi|foram)\s+compilad|compil(ado|ou|a[çc][ãa]o)\s+com sucesso", re.I),
+    "wokwi_start_simulation": re.compile(
+        r"\bsimulei\b|\b(foi|foram)\s+simulad|simulad[oa]s?\s+com sucesso|simula[çc][ãa]o\s+(mostrou|confirmou|rodou)",
+        re.I,
+    ),
+}
+DESCRICAO_ACAO = {
+    "salvar_projeto": "diz que o projeto foi alterado ou salvo, mas salvar_projeto não rodou com sucesso",
+    "compilar": "diz que compilou, mas compilar não rodou com sucesso",
+    "wokwi_start_simulation": "diz que simulou, mas wokwi_start_simulation não rodou",
+}
+
+
+REGEX_NEGACAO = re.compile(r"\b(n[ãa]o|nem|nunca|ainda n[ãa]o)\s+(\w+\s+){0,2}$", re.I)
+
+
+def _afirma(regex, resposta):
+    """A regex aparece sem negação logo antes ("não simulei" não é afirmar que simulou)."""
+    return any(not REGEX_NEGACAO.search(resposta[max(0, m.start() - 30):m.start()]) for m in regex.finditer(resposta))
+
+
+def acoes_sem_ferramenta(resposta, ferramentas_ok):
+    """Ações que a resposta afirma ter feito sem a ferramenta correspondente ter rodado com sucesso."""
+    return [DESCRICAO_ACAO[f] for f, regex in AFIRMACOES_DE_ACAO.items()
+            if f not in ferramentas_ok and _afirma(regex, resposta)]
 
 
 def _sem_espacos_extras(texto):
