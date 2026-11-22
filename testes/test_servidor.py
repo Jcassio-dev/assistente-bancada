@@ -12,6 +12,8 @@ from servidor_bancada.servidor import (
     largura_trilha,
     resistor_led,
     resumir_erros_compilacao,
+    capturar_display,
+    ler_projeto,
     salvar_projeto,
     validar_diagrama,
 )
@@ -264,6 +266,29 @@ def test_salvar_projeto_remove_pontos_de_fio_invalidos(tmp_path, monkeypatch):
     salvar_projeto("fios", json.dumps(d), "")
     salvo = json.loads((tmp_path / "fios" / "diagram.json").read_text())
     assert salvo["connections"][2][3] == ["h10", "v-5.5", "*"]
+
+
+def test_ler_projeto_devolve_o_que_foi_salvo(tmp_path, monkeypatch):
+    monkeypatch.setattr(servidor, "PASTA_PROJETOS", tmp_path)
+    salvar_projeto("pisca", (EXEMPLO / "diagram.json").read_text(), "void setup(){}\n")
+    r = ler_projeto("pisca")
+    assert r["codigo"] == "void setup(){}\n" and json.loads(r["diagram_json"])["parts"][0]["id"] == "esp"
+    assert r["compilado"] is False
+    assert "não encontrado" in ler_projeto("outro")["erro"] and "pisca" in ler_projeto("outro")["erro"]
+
+
+def test_capturar_display_exige_projeto_compilado(tmp_path, monkeypatch):
+    monkeypatch.setattr(servidor, "PASTA_PROJETOS", tmp_path)
+    salvar_projeto("pisca", (EXEMPLO / "diagram.json").read_text(), "")
+    assert "não compilado" in capturar_display("pisca", "led1")["erro"]
+
+
+def test_capturar_display_recusa_peca_que_nao_e_display(tmp_path, monkeypatch):
+    monkeypatch.setattr(servidor, "PASTA_PROJETOS", tmp_path)
+    salvar_projeto("pisca", (EXEMPLO / "diagram.json").read_text(), "")
+    (tmp_path / "pisca" / "build").mkdir()
+    r = capturar_display("pisca", "led1")
+    assert "não é um display" in r["erro"] and "nenhum" in r["erro"]
 
 
 # ---------- resumir_erros_compilacao ----------

@@ -34,10 +34,10 @@ async def fluxo():
     async with ferramentas_mcp() as lista:
         f = {t.name: t for t in lista}
         nomes_bancada = {"validar_diagrama", "resistor_led", "divisor_tensao", "largura_trilha",
-                         "gerar_bom", "salvar_projeto", "compilar"}
+                         "gerar_bom", "salvar_projeto", "compilar", "ler_projeto", "capturar_display"}
         assert nomes_bancada <= f.keys()
         assert {"wokwi_start_simulation", "wokwi_read_serial"} <= f.keys()
-        assert len(lista) == 19, sorted(f)  # 7 do bancada, 11 do Wokwi e esperar_serial
+        assert len(lista) == 21, sorted(f)  # 9 do bancada, 11 do Wokwi e esperar_serial
 
         salvo = json.loads(texto(await f["salvar_projeto"].ainvoke({
             "nome": "teste-blink",

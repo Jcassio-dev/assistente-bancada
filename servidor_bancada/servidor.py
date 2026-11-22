@@ -10,7 +10,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Image
 
 RAIZ = Path(__file__).resolve().parent.parent
 PASTA_PROJETOS = Path(os.environ.get("PASTA_PROJETOS", RAIZ / "projetos"))
@@ -278,7 +278,7 @@ def divisor_tensao(tensao_entrada: float, tensao_saida: float, r2_ohms: float = 
     """Dimensiona um divisor resistivo: Vout = Vin * R2 / (R1 + R2).
 
     Recebe R2 (resistor ligado ao GND) e calcula R1. O R1 comercial (E12) é
-    arredondado para cima, então a saída real nunca passa da desejada — útil
+    arredondado para cima, então a saída real nunca passa da desejada, útil
     para baixar 5 V para um GPIO de 3,3 V.
     """
     if not 0 < tensao_saida < tensao_entrada:
@@ -408,6 +408,28 @@ def salvar_projeto(nome: str, diagram_json: str, codigo: str) -> dict:
     }
 
 
+@mcp.tool()
+def ler_projeto(nome: str) -> dict:
+    """Lê um projeto salvo em projetos/<nome>/: diagram.json e código do sketch.
+
+    Use antes de alterar um projeto que já existe (ex.: o que está aberto na
+    bancada), para partir do circuito atual e salvar com o mesmo nome.
+    """
+    pasta, erro = _pasta_projeto(nome)
+    if erro:
+        return {"erro": erro}
+    if not (pasta / "diagram.json").exists():
+        existentes = sorted(p.parent.name for p in PASTA_PROJETOS.glob("*/diagram.json"))
+        return {"erro": f"Projeto '{nome}' não encontrado. Projetos salvos: {', '.join(existentes) or 'nenhum'}."}
+    sketch = pasta / f"{nome}.ino"
+    return {
+        "nome": nome,
+        "diagram_json": (pasta / "diagram.json").read_text(encoding="utf-8"),
+        "codigo": sketch.read_text(encoding="utf-8") if sketch.exists() else "",
+        "compilado": (pasta / "build").exists(),
+    }
+
+
 REGEX_ERRO_GCC = re.compile(
     r"^(?P<arquivo>[^\s:][^:\n]*):(?P<linha>\d+):(?:(?P<coluna>\d+):)? (?:fatal )?error: (?P<mensagem>.+)$",
     re.MULTILINE,
@@ -474,6 +496,55 @@ def compilar(projeto: str) -> dict:
         "firmware": str(pasta / "build" / f"{projeto}.{PLACAS[placa['type']]['firmware']}"),
         "uso_memoria": uso,
     }
+
+
+def _caminho_wokwi_cli():
+    """WOKWI_CLI, depois o PATH, depois a pasta padrão do instalador."""
+    return os.environ.get("WOKWI_CLI") or shutil.which("wokwi-cli") or str(Path.home() / ".wokwi/bin/wokwi-cli")
+
+
+DISPLAYS = {"board-ssd1306", "wokwi-ili9341", "wokwi-lcd1602", "wokwi-lcd2004", "wokwi-7segment"}
+
+
+@mcp.tool()
+def capturar_display(projeto: str, parte: str, tempo_ms: int = 6000):
+    """Simula o projeto já compilado e captura a imagem de um display (ex.: SSD1306) em tempo_ms.
+
+    Use depois de compilar, para conferir o que aparece na tela: texto cortado,
+    sobreposto ou fora da tela não aparece na serial. A imagem fica em
+    projetos/<projeto>/telas/<parte>.png e também é devolvida para você ver.
+    tempo_ms: instante da simulação em que a tela é capturada; some os delay() do
+    sketch até o primeiro desenho e dê folga. Roda uma simulação separada (~15 s).
+    """
+    pasta, erro = _pasta_projeto(projeto)
+    if erro:
+        return {"erro": erro}
+    if not (pasta / "wokwi.toml").exists() or not (pasta / "build").exists():
+        return {"erro": f"Projeto '{projeto}' não compilado. Rode salvar_projeto e compilar antes."}
+    diagrama, erro = _ler_diagrama((pasta / "diagram.json").read_text(encoding="utf-8"))
+    tipos = {p["id"]: p["type"] for p in diagrama["parts"]} if diagrama else {}
+    if tipos.get(parte) not in DISPLAYS:
+        displays = [i for i, t in tipos.items() if t in DISPLAYS]
+        return {"erro": f"'{parte}' não é um display do diagrama. Displays: {', '.join(displays) or 'nenhum'}."}
+
+    tempo_ms = max(500, min(int(tempo_ms), 30000))
+    imagem = pasta / "telas" / f"{parte}.png"
+    imagem.parent.mkdir(exist_ok=True)
+    imagem.unlink(missing_ok=True)
+    comando = [
+        _caminho_wokwi_cli(), "--quiet", "--timeout", str(tempo_ms + 1000), "--timeout-exit-code", "0",
+        "--screenshot-part", parte, "--screenshot-time", str(tempo_ms), "--screenshot-file", str(imagem), str(pasta),
+    ]
+    try:
+        resultado = subprocess.run(comando, capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        return {"erro": "A captura passou de 2 minutos e foi interrompida."}
+    if not imagem.exists():
+        saida = (resultado.stderr + resultado.stdout).strip().splitlines()[-10:]
+        return {"erro": "A simulação não gerou a imagem.", "saida": saida}
+    serial = [l for l in resultado.stdout.splitlines() if l.strip()][-8:]
+    texto = json.dumps({"imagem": str(imagem), "tempo_ms": tempo_ms, "serial_final": serial}, ensure_ascii=False)
+    return [texto, Image(path=str(imagem))]
 
 
 if __name__ == "__main__":
