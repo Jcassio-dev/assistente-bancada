@@ -135,3 +135,25 @@ def etapas_visiveis(etapas):
     if "serial_ok" in etapas:
         itens.append(("Serial confirmada", "ok") if etapas["serial_ok"] else ("Serial sem o esperado", "erro"))
     return itens
+
+
+def mover_peca(projeto, id, left, top, rotate=0):
+    """Grava no diagram.json a posição (e a rotação) de uma peça arrastada na bancada.
+
+    Só mudam top, left e rotate: as ligações continuam as mesmas, então não precisa
+    validar de novo. Devolve False se a peça ou o projeto não existirem.
+    """
+    arquivo = PASTA_PROJETOS / projeto / "diagram.json" if projeto else None
+    if not arquivo or not arquivo.exists():
+        return False
+    diagrama = json.loads(arquivo.read_text(encoding="utf-8"))
+    for parte in diagrama.get("parts", []):
+        if parte.get("id") == id:
+            parte["left"], parte["top"] = round(float(left)), round(float(top))
+            if rotate:
+                parte["rotate"] = int(rotate) % 360
+            else:
+                parte.pop("rotate", None)
+            arquivo.write_text(json.dumps(diagrama, indent=2, ensure_ascii=False), encoding="utf-8")
+            return True
+    return False

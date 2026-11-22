@@ -21,7 +21,7 @@ from agente.mcp_config import configuracao_servidores, texto_ferramenta
 
 LIMITE_SEGUNDOS = 180
 OCIOSA_SEGUNDOS = 20
-INTERVALO = 0.8
+INTERVALO = 0.3
 
 # Controles de simulação de cada peça: (controle, rótulo, mínimo, máximo, passo, valor inicial).
 CONTROLES = {
@@ -99,12 +99,13 @@ class SimulacaoAoVivo:
                         break  # a página foi fechada
                     if await self._atender_comandos(f):
                         break
-                    self.serial = (self.serial + texto_ferramenta(
-                        await f["wokwi_read_serial"].ainvoke({"clear": True})).replace("\r", ""))[-6000:]
+                    novo = texto_ferramenta(await f["wokwi_read_serial"].ainvoke({"clear": True}))
+                    if novo.strip() != "No serial output":  # resposta do Wokwi quando nada chegou
+                        self.serial = (self.serial + novo.replace("\r", ""))[-6000:]
                     for led in self.leds:
+                        # o catodo vai ao GND (direto ou pelo resistor): basta ler o anodo
                         anodo = texto_ferramenta(await f["wokwi_read_pin"].ainvoke({"partId": led, "pin": "A"}))
-                        catodo = texto_ferramenta(await f["wokwi_read_pin"].ainvoke({"partId": led, "pin": "C"}))
-                        self.acesos[led] = _pino_ligado(anodo) and not _pino_ligado(catodo)
+                        self.acesos[led] = _pino_ligado(anodo)
                     await asyncio.sleep(INTERVALO)
                 await f["wokwi_stop_simulation"].ainvoke({})
         except Exception as e:  # token ausente, projeto não compilado, wokwi-cli fora do ar

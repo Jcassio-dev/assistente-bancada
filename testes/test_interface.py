@@ -118,3 +118,17 @@ def test_pacote_wokwi(tmp_path):
     assert nome == f"{tmp_path.name}-wokwi.zip"
     assert sorted(z.namelist()) == ["diagram.json", "libraries.txt", "sketch.ino"]
     assert "DHT sensor library" in z.read("libraries.txt").decode()
+
+
+def test_mover_peca_grava_posicao_e_rotacao(projetos):
+    from interface.acompanhamento import mover_peca
+
+    projetos("pisca", EXEMPLO)
+    assert mover_peca("pisca", "led1", 310.4, -20, 90)
+    salvo = acompanhamento.ler_diagrama("pisca")
+    led = next(p for p in salvo["parts"] if p["id"] == "led1")
+    assert (led["left"], led["top"], led["rotate"]) == (310, -20, 90)
+    assert salvo["connections"] == EXEMPLO["connections"]
+    assert mover_peca("pisca", "led1", 0, 0, 0) and "rotate" not in next(
+        p for p in acompanhamento.ler_diagrama("pisca")["parts"] if p["id"] == "led1")
+    assert not mover_peca("pisca", "nao-existe", 0, 0) and not mover_peca("outro", "led1", 0, 0)
