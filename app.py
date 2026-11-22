@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 
 import streamlit as st
-import streamlit.components.v1 as components
 from dotenv import load_dotenv
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -26,12 +25,14 @@ from interface.acompanhamento import (  # noqa: E402
     PASTA_PROJETOS,
     etapas_visiveis,
     ler_diagrama,
+    mover_peca,
     registrar,
     rotulo,
     serial_sem_boot,
 )
 from interface.exportar import NOVO_PROJETO_ESP32, pacote_wokwi  # noqa: E402
-from interface.painel import html_bancada, ligacoes, telas_atualizadas  # noqa: E402
+from interface.mesa import mesa  # noqa: E402
+from interface.painel import ligacoes, telas_atualizadas  # noqa: E402
 from interface.simulacao import SimulacaoAoVivo, controles_do_diagrama, leds_do_diagrama  # noqa: E402
 from servidor_bancada.servidor import compilar, gerar_bom  # noqa: E402
 
@@ -206,15 +207,21 @@ def ligar_simulacao(conversa, diagrama):
     simulacoes()[conversa["id"]] = SimulacaoAoVivo(projeto, PASTA_PROJETOS / projeto, leds_do_diagrama(diagrama))
 
 
-def enviar_controle(id_, parte, controle, chave):
-    sim = simulacoes().get(id_)
-    if sim:
-        sim.controlar(parte, controle, st.session_state[chave])
+def tratar_eventos(conversa, resultado):
+    """Peça arrastada/girada na mesa e controles da simulação ao vivo."""
+    if movida := getattr(resultado, "mover", None):
+        mover_peca(conversa["projeto"], movida["id"], movida["left"], movida["top"], movida.get("rotate", 0))
+    sim = simulacoes().get(conversa["id"])
+    if sim and (controle := getattr(resultado, "controle", None)):
+        sim.controlar(controle["parte"], controle["controle"], controle["valor"])
+    if sim and (botao := getattr(resultado, "botao", None)):
+        sim.apertar(botao["parte"])
 
 
-@st.fragment(run_every=1.0)
-def bancada_ao_vivo(id_, diagrama, telas):
-    """Circuito, controles e serial da simulação ligada; atualiza a cada segundo."""
+@st.fragment(run_every=0.7)
+def mesa_ao_vivo(conversa, diagrama, telas):
+    """Mesa com a simulação ligada: a cada segundo atualiza LEDs, serial e tempo, sem redesenhar."""
+    id_ = conversa["id"]
     sim = simulacoes().get(id_)
     if sim is None:
         st.rerun()
@@ -223,29 +230,11 @@ def bancada_ao_vivo(id_, diagrama, telas):
         simulacoes().pop(id_, None)
         st.session_state.aviso_simulacao = estado["erro"] or "Simulação desligada."
         st.rerun()
-
-    components.html(html_bancada(diagrama, telas, None, altura=400, acesos=estado["acesos"]), height=410)
-    if estado["iniciando"]:
-        st.caption("Ligando a simulação no Wokwi...")
-    else:
-        minutos, segundos = divmod(estado["restante"], 60)
-        st.caption(f"Ao vivo. Mexa nos controles e veja a serial e os LEDs. Desliga sozinha em {minutos}:{segundos:02d}.")
-
-    controles = controles_do_diagrama(diagrama)
-    if controles:
-        colunas = st.columns(min(len(controles), 3))
-        for i, (parte, tipo, lista) in enumerate(controles):
-            with colunas[i % len(colunas)]:
-                st.markdown(f"**{parte}**")
-                if not lista:  # botão
-                    st.button(f"Apertar {parte}", key=f"btn-{id_}-{parte}", icon=":material/touch_app:",
-                              on_click=lambda p=parte: simulacoes()[id_].apertar(p) if id_ in simulacoes() else None)
-                for controle, rotulo_, minimo, maximo, passo, inicial in lista:
-                    chave = f"ctl-{id_}-{parte}-{controle}"
-                    st.slider(rotulo_, minimo, maximo, inicial, passo, key=chave,
-                              on_change=enviar_controle, args=(id_, parte, controle, chave))
     linhas = [l for l in serial_sem_boot(estado["serial"]).splitlines() if l.strip()]
-    st.code("\n".join(linhas[-8:]) or "(sem saída ainda)", language=None)
+    ao_vivo = {"iniciando": estado["iniciando"], "acesos": estado["acesos"],
+               "serial": "\n".join(linhas[-80:]), "restante": estado["restante"]}
+    resultado = mesa(f"mesa-vivo-{id_}", diagrama, telas, None, ao_vivo, controles_do_diagrama(diagrama), altura=420)
+    tratar_eventos(conversa, resultado)
 
 
 def barra_da_bancada(conversa, diagrama):
@@ -293,9 +282,15 @@ def desenhar_bancada(alvo, conversa, durante_resposta=False):
             ["Circuito", "Ligações", "Materiais", "Código", "Serial"])
         with aba_circuito:
             if ao_vivo:
-                bancada_ao_vivo(conversa["id"], diagrama, telas)
+                mesa_ao_vivo(conversa, diagrama, telas)
             else:
-                components.html(html_bancada(diagrama, telas, conversa.get("destaques")), height=490)
+                # durante a resposta a mesa é redesenhada várias vezes na mesma execução: chave nova a cada vez
+                if durante_resposta:
+                    st.session_state.desenhos = st.session_state.get("desenhos", 0) + 1
+                chave = f"mesa-{conversa['id']}" + (f"-{st.session_state.desenhos}" if durante_resposta else "")
+                resultado = mesa(chave, diagrama, telas, conversa.get("destaques"))
+                if not durante_resposta:
+                    tratar_eventos(conversa, resultado)
                 if conversa.get("destaques") and diagrama:
                     st.caption("Contorno laranja: o que mudou na última resposta.")
         if not diagrama:
