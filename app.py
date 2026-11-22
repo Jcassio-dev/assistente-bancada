@@ -1,38 +1,72 @@
-"""Interface Streamlit do Assistente de Bancada: chat à esquerda, bancada à direita.
+"""Interface Streamlit do Assistente de Bancada.
+
+Cada conversa é uma bancada: o chat fica à esquerda e o circuito do projeto da
+conversa à direita, redesenhado enquanto o agente monta.
 
 Uso: streamlit run app.py
 """
 
 import asyncio
 import json
-import os
-import re
-import uuid
 from pathlib import Path
 
 import streamlit as st
 import streamlit.components.v1 as components
 from dotenv import load_dotenv
-from langgraph.checkpoint.memory import InMemorySaver
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 RAIZ = Path(__file__).resolve().parent
 load_dotenv(RAIZ / ".env")
 
 from agente.grafo import criar_modelo, responder  # noqa: E402
 from agente.guardrails import remover_segredos  # noqa: E402
-from painel_bancada import html_bancada, ligacoes, novidades, telas_atualizadas  # noqa: E402
-
-PASTA_PROJETOS = Path(os.environ.get("PASTA_PROJETOS", RAIZ / "projetos"))
+from interface import conversas  # noqa: E402
+from interface.acompanhamento import PASTA_PROJETOS, etapas_visiveis, ler_diagrama, registrar, rotulo  # noqa: E402
+from interface.painel import html_bancada, ligacoes, telas_atualizadas  # noqa: E402
+from servidor_bancada.servidor import gerar_bom  # noqa: E402
 
 st.set_page_config(page_title="Assistente de Bancada", page_icon=":material/memory:", layout="wide")
 
+SUGESTOES = [
+    ("Termômetro com display", "DHT22 e OLED SSD1306",
+     "Monte um termômetro com ESP32, um sensor DHT22 e um display OLED SSD1306 mostrando temperatura e umidade. Simule."),
+    ("Alerta de distância", "HC-SR04 e LED",
+     "Monte um medidor de distância com HC-SR04 que acende um LED vermelho quando algo chegar a menos de 20 cm. Simule."),
+    ("Primeiro circuito", "LED piscando no GPIO2",
+     "Monte um LED piscando no GPIO2 a cada meio segundo, escrevendo o estado na serial. Simule."),
+    ("Pergunta de datasheet", "corrente máxima de um GPIO",
+     "Qual a corrente máxima que um GPIO do ESP32 consegue fornecer?"),
+]
 
-# O Streamlit reexecuta este script a cada mensagem. O checkpointer (onde as
-# conversas ficam) e o modelo são criados uma vez só. O grafo é montado a cada
-# resposta, porque as ferramentas MCP valem só enquanto a sessão está aberta.
-@st.cache_resource
-def checkpointer():
-    return InMemorySaver()
+ESTILO = """
+<style>
+  .block-container { padding-top: 2.2rem; padding-bottom: 1rem; max-width: 100%; }
+  .st-key-lista-bancadas .stButton button { justify-content: flex-start; padding: .35rem .7rem; }
+  .st-key-lista-bancadas .stButton button > div { justify-content: flex-start; width: 100%; }
+  .st-key-lista-bancadas .stButton button p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: left; }
+  .st-key-lista-bancadas [data-testid="stBaseButton-tertiary"] { color: #b9c2bd; }
+  .st-key-lista-bancadas [data-testid="stBaseButton-secondary"] { background: #252d30; border-color: #3a4447; }
+  [data-testid="stSidebar"] hr { margin: .8rem 0 .4rem 0; }
+  .titulo-bancada { display: flex; align-items: baseline; gap: .6rem; margin: 0 0 .35rem 0; }
+  .titulo-bancada b { font-size: 1.35rem; font-weight: 700; color: #e4e7e5; }
+  .titulo-bancada span { color: #8a958f; font-size: .85rem; font-family: ui-monospace, monospace; }
+  .etapas { margin: 0 0 .7rem 0; min-height: 1.6rem; }
+  .pilula { display: inline-block; padding: .1rem .6rem; margin: 0 .35rem .3rem 0; border-radius: 999px;
+            font-size: .78rem; border: 1px solid; }
+  .pilula.ok { color: #86d9a6; background: #183326; border-color: #2c5a41; }
+  .pilula.erro { color: #f2a097; background: #3a1d1a; border-color: #6b302a; }
+  .pilula.neutra { color: #b9c2bd; background: #22282a; border-color: #394145; }
+  .boas-vindas { padding: 2.5rem 0 1.2rem 0; }
+  .boas-vindas h1 { font-size: 2rem; margin-bottom: .3rem; }
+  .boas-vindas p { color: #9aa5a0; font-size: 1.02rem; max-width: 40rem; }
+  [data-testid="stChatMessage"] h1, [data-testid="stChatMessage"] h2 { font-size: 1.15rem; padding: .6rem 0 .2rem 0; }
+  [data-testid="stChatMessage"] h3, [data-testid="stChatMessage"] h4 { font-size: 1.02rem; padding: .5rem 0 .1rem 0; }
+  .st-key-sugestoes .stButton button { min-height: 4.6rem; justify-content: flex-start; padding: .7rem 1rem; }
+  .st-key-sugestoes .stButton button div, .st-key-sugestoes .stButton button p { text-align: left; width: 100%; }
+</style>
+"""
+st.markdown(ESTILO, unsafe_allow_html=True)
 
 
 @st.cache_resource
@@ -40,47 +74,134 @@ def modelo():
     return criar_modelo()
 
 
-def nova_conversa():
-    st.session_state.thread_id = str(uuid.uuid4())
-    st.session_state.historico = []  # [{papel, texto, bastidores}] só para exibir
-    st.session_state.projeto = None  # projeto mostrado na bancada
-    st.session_state.diagramas = {}  # última versão exibida de cada projeto (para destacar o que mudou)
-    st.session_state.destaques = set()
-    st.session_state.serial = ""
+async def rodar_agente(thread_id, pedido, ao_progresso):
+    # Uma conexão por resposta: o asyncio.run cria um laço novo a cada mensagem.
+    conversas.PASTA.mkdir(parents=True, exist_ok=True)
+    async with AsyncSqliteSaver.from_conn_string(str(conversas.MEMORIA)) as checkpointer:
+        return await responder(checkpointer, thread_id, pedido, modelo(), ao_progresso)
 
 
-if "thread_id" not in st.session_state:
-    nova_conversa()
+async def apagar_memoria(thread_id):
+    async with AsyncSqliteSaver.from_conn_string(str(conversas.MEMORIA)) as checkpointer:
+        await checkpointer.adelete_thread(thread_id)
 
 
-def ler_diagrama(projeto):
-    caminho = PASTA_PROJETOS / projeto / "diagram.json"
-    return json.loads(caminho.read_text(encoding="utf-8")) if caminho.exists() else None
+# ---------- conversa ativa (fica na URL: ?c=<id>) ----------
+
+def conversa_ativa():
+    id_ = st.query_params.get("c")
+    if "conversa" in st.session_state and st.session_state.conversa["id"] == id_:
+        return st.session_state.conversa
+    conversa = conversas.carregar(id_) if id_ else None
+    if conversa is None and "conversa" in st.session_state and not id_ \
+            and not st.session_state.conversa["historico"]:
+        return st.session_state.conversa  # bancada nova ainda sem mensagem: mantém a mesma
+    st.session_state.conversa = conversa or conversas.nova()
+    return st.session_state.conversa
 
 
-def serial_sem_boot(texto):
-    """Tira o cabeçalho de boot do ESP32 (até a linha 'entry 0x...') e o aviso da ferramenta."""
-    partes = re.split(r"^entry 0x[0-9a-f]+\s*$", texto, flags=re.M)
-    return partes[-1].strip()
+def abrir(id_=None):
+    if id_:
+        st.query_params["c"] = id_
+    else:
+        st.query_params.clear()
+    st.session_state.pop("conversa", None)
 
 
-def atualizar_bancada(b):
-    """Acompanha o projeto em que o agente está mexendo, pelas ferramentas chamadas."""
-    anterior = None
-    for f in b["ferramentas"]:
-        if f["nome"] == "salvar_projeto" and '"pasta"' in f["resultado"]:
-            st.session_state.projeto = f["argumentos"].get("nome")
-            anterior = anterior or st.session_state.diagramas.get(st.session_state.projeto)
-        elif f["nome"] in ("compilar", "capturar_display", "ler_projeto") and not f["erro"]:
-            st.session_state.projeto = f["argumentos"].get("projeto") or f["argumentos"].get("nome")
-        elif f["nome"] in ("esperar_serial", "wokwi_read_serial") and f["resultado"]:
-            st.session_state.serial = serial_sem_boot(f["resultado"])
-    projeto = st.session_state.projeto
+def abrir_projeto(projeto):
+    conversa = conversas.nova(projeto)
+    conversa["diagrama"] = ler_diagrama(projeto)
+    conversas.salvar(conversa)
+    abrir(conversa["id"])
+
+
+conversa = conversa_ativa()
+
+
+# ---------- barra lateral ----------
+
+with st.sidebar:
+    st.markdown("### Assistente de Bancada")
+    st.caption("Protótipos com ESP32: do datasheet à simulação e à placa.")
+    st.button("Nova bancada", icon=":material/add:", type="primary", use_container_width=True, on_click=abrir)
+
+    salvas = conversas.listar()
+    with st.container(key="lista-bancadas"):
+        if salvas:
+            st.caption("Suas bancadas")
+        for c in salvas:
+            ativa = c["id"] == conversa["id"]
+            st.button(c["titulo"] or "Sem título", key=f"conv-{c['id']}", use_container_width=True,
+                      type="secondary" if ativa else "tertiary",
+                      icon=":material/developer_board:" if c["projeto"] else ":material/chat_bubble:",
+                      on_click=abrir, args=(c["id"],))
+
+    st.divider()
+    projetos = sorted(p.parent.name for p in PASTA_PROJETOS.glob("*/diagram.json"))
+    if projetos:
+        with st.popover("Abrir projeto salvo", icon=":material/folder_open:", type="tertiary"):
+            st.caption("Abre o projeto numa bancada nova, para continuar de onde parou.")
+            for p in projetos:
+                st.button(p, key=f"proj-{p}", type="tertiary", on_click=abrir_projeto, args=(p,))
+
+    if conversa["historico"] or conversa["projeto"]:
+        with st.popover("Apagar esta bancada", icon=":material/delete:", type="tertiary"):
+            st.caption("Apaga a conversa e a memória dela. Os arquivos do projeto continuam em projetos/.")
+            if st.button("Apagar", type="primary"):
+                asyncio.run(apagar_memoria(conversa["id"]))
+                conversas.apagar(conversa["id"])
+                abrir()
+                st.rerun()
+
+
+# ---------- bancada ----------
+
+def pilulas(conversa):
+    itens = etapas_visiveis(conversa.get("etapas"))
+    if not itens:
+        texto = "Aguardando a montagem" if conversa.get("projeto") else "Nenhum circuito ainda"
+        itens = [(texto, "neutra")]
+    return "".join(f'<span class="pilula {situacao}">{texto}</span>' for texto, situacao in itens)
+
+
+def desenhar_bancada(alvo, conversa):
+    projeto = conversa.get("projeto")
     diagrama = ler_diagrama(projeto) if projeto else None
-    if diagrama:
-        st.session_state.destaques = novidades(diagrama, anterior) if anterior else set()
-        st.session_state.diagramas[projeto] = diagrama
+    with alvo.container():
+        nome = f"<span>projetos/{projeto}</span>" if projeto else ""
+        st.markdown(f'<div class="titulo-bancada"><b>Bancada</b>{nome}</div>'
+                    f'<div class="etapas">{pilulas(conversa)}</div>', unsafe_allow_html=True)
+        telas = telas_atualizadas(PASTA_PROJETOS / projeto) if diagrama else {}
+        aba_circuito, aba_ligacoes, aba_materiais, aba_codigo, aba_serial = st.tabs(
+            ["Circuito", "Ligações", "Materiais", "Código", "Serial"])
+        with aba_circuito:
+            components.html(html_bancada(diagrama, telas, conversa.get("destaques")), height=490)
+            if conversa.get("destaques") and diagrama:
+                st.caption("Contorno laranja: o que mudou na última resposta.")
+        if not diagrama:
+            for aba in (aba_ligacoes, aba_materiais, aba_codigo, aba_serial):
+                aba.caption("Aparece quando houver um circuito na bancada.")
+            return
+        with aba_ligacoes:
+            destaques = set(conversa.get("destaques") or [])
+            st.dataframe([{"De": de, "Para": para, "Cor": cor,
+                           "Nova": "sim" if " | ".join(sorted([de, para])) in destaques else ""}
+                          for de, para, cor in ligacoes(diagrama)], hide_index=True, use_container_width=True)
+        with aba_materiais:
+            bom = gerar_bom(json.dumps(diagrama))
+            st.dataframe([{"Qtd.": i["quantidade"], "Peça": i["descricao"], "Referências": ", ".join(i["referencias"])}
+                          for i in bom.get("itens", [])], hide_index=True, use_container_width=True)
+        with aba_codigo:
+            sketch = PASTA_PROJETOS / projeto / f"{projeto}.ino"
+            st.code(sketch.read_text(encoding="utf-8") if sketch.exists() else "", language="cpp", height=440)
+        with aba_serial:
+            if conversa.get("serial"):
+                st.code(conversa["serial"], language=None, height=440)
+            else:
+                st.caption("A saída da serial aparece aqui depois de uma simulação.")
 
+
+# ---------- chat ----------
 
 def mostrar_bastidores(b):
     partes = []
@@ -92,16 +213,14 @@ def mostrar_bastidores(b):
         partes.append(f"{len(b['trechos'])} trecho(s)")
     if b["bloqueado_por"]:
         partes.append(f"bloqueado: {b['bloqueado_por']}")
-    with st.expander("Bastidores" + (f" ({', '.join(partes)})" if partes else "")):
+    with st.expander("Bastidores" + (f" ({', '.join(partes)})" if partes else ""), icon=":material/build:"):
         st.markdown("**Guardrails**")
         for g in b["guardrails"]:
             st.markdown(f"- {g}")
-
         if b["skills"]:
             st.markdown("**Skills carregadas**")
             for s in b["skills"]:
                 st.markdown(f"- `{s}`")
-
         if b["ferramentas"]:
             st.markdown("**Ferramentas chamadas**")
             for i, f in enumerate(b["ferramentas"], 1):
@@ -111,7 +230,6 @@ def mostrar_bastidores(b):
                 if f["resultado"]:
                     st.caption("Resultado")
                     st.code(f["resultado"], language=None)
-
         if b["trechos"]:
             st.markdown("**Trechos recuperados**")
             for t in b["trechos"]:
@@ -120,92 +238,103 @@ def mostrar_bastidores(b):
                 st.markdown(f"- [{t['titulo']}]({t['url']}), {pagina}{secao} (pontuação {t['pontuacao']})")
 
 
-def mostrar_bancada():
-    projetos = sorted(p.parent.name for p in PASTA_PROJETOS.glob("*/diagram.json"))
-    atual = st.session_state.projeto
-    escolhido = st.selectbox(
-        "Projeto na bancada", projetos, index=projetos.index(atual) if atual in projetos else None,
-        placeholder="Nenhum projeto ainda", label_visibility="collapsed",
+def boas_vindas():
+    st.markdown(
+        '<div class="boas-vindas"><h1>O que vamos montar?</h1>'
+        "<p>Descreva o circuito. O assistente consulta os datasheets, monta na bancada ao lado, "
+        "confere as ligações, compila e simula no Wokwi. Depois é só pedir mudanças.</p></div>",
+        unsafe_allow_html=True,
     )
-    if escolhido != atual:
-        st.session_state.projeto, st.session_state.destaques, st.session_state.serial = escolhido, set(), ""
-        atual = escolhido
-    diagrama = ler_diagrama(atual) if atual else None
-    if diagrama:
-        # versão que o usuário está vendo: base para destacar o que a próxima resposta mudar
-        st.session_state.diagramas.setdefault(atual, diagrama)
-    if not diagrama:
-        st.caption("O circuito aparece aqui quando o assistente salvar um projeto. "
-                   "Você também pode abrir um projeto salvo e pedir mudanças no chat.")
-        return
-
-    aba_circuito, aba_ligacoes, aba_codigo, aba_serial = st.tabs(["Circuito", "Ligações", "Código", "Serial"])
-    with aba_circuito:
-        components.html(html_bancada(diagrama, telas_atualizadas(PASTA_PROJETOS / atual), st.session_state.destaques),
-                        height=470)
-        if st.session_state.destaques:
-            st.caption("Em destaque (tracejado ou contorno laranja): o que mudou na última resposta.")
-    with aba_ligacoes:
-        linhas = [{"De": de, "Para": para, "Cor": cor,
-                   "Nova": "sim" if " | ".join(sorted([de, para])) in st.session_state.destaques else ""}
-                  for de, para, cor in ligacoes(diagrama)]
-        st.dataframe(linhas, hide_index=True, use_container_width=True)
-    with aba_codigo:
-        sketch = PASTA_PROJETOS / atual / f"{atual}.ino"
-        st.code(sketch.read_text(encoding="utf-8") if sketch.exists() else "", language="cpp")
-    with aba_serial:
-        if st.session_state.serial:
-            st.code(st.session_state.serial, language=None)
-        else:
-            st.caption("A saída da serial aparece aqui depois de uma simulação.")
+    with st.container(key="sugestoes"):
+        colunas = st.columns(2)
+        for i, (titulo, detalhe, pedido) in enumerate(SUGESTOES):
+            if colunas[i % 2].button(f"**{titulo}**  \n{detalhe}", key=f"sug-{i}", use_container_width=True):
+                st.session_state.pendente = pedido
+                st.rerun()
 
 
-with st.sidebar:
-    st.title("Assistente de Bancada")
-    st.caption("Protótipos com ESP32 no Wokwi, do datasheet à placa.")
-    st.button("Nova conversa", on_click=nova_conversa, type="primary", use_container_width=True)
-    st.caption(f"Conversa `{st.session_state.thread_id[:8]}`")
+def abrir_conversa_vazia(conversa):
+    if conversa["projeto"]:
+        st.markdown(f'<div class="boas-vindas"><h1>{conversa["projeto"]}</h1>'
+                    "<p>Projeto aberto na bancada. Peça uma mudança, uma simulação ou a preparação "
+                    "para a placa.</p></div>", unsafe_allow_html=True)
+    else:
+        boas_vindas()
 
-coluna_chat, coluna_bancada = st.columns([5, 4], gap="large")
+
+def responder_pedido(conversa, pedido, area_mensagens, painel, abertura):
+    if not conversa["historico"] and not conversa["projeto"]:
+        conversa["titulo"] = conversas.titulo_do_pedido(pedido)
+    conversa["historico"].append({"papel": "user", "texto": pedido})
+    conversas.salvar(conversa)
+    if st.query_params.get("c") != conversa["id"]:
+        st.query_params["c"] = conversa["id"]
+
+    # o agente sabe qual projeto é desta conversa (pode ter vindo de "Abrir projeto salvo")
+    contexto = f"[Projeto aberto na bancada: {conversa['projeto']}]\n" if conversa["projeto"] else ""
+    chamadas = {}
+
+    abertura.empty()  # tira as boas-vindas assim que o pedido sai
+    with area_mensagens:
+        with st.chat_message("user"):
+            st.markdown(pedido)
+        with st.chat_message("assistant"):
+            status = st.status("Entendendo o pedido...", expanded=True)
+
+            def ao_progresso(no, mensagens):
+                for m in mensagens:
+                    if isinstance(m, AIMessage):
+                        for c in m.tool_calls or []:
+                            chamadas[c["id"]] = c
+                            status.write(rotulo(c["name"], c["args"]))
+                            status.update(label=rotulo(c["name"], c["args"]) + "...", expanded=True)
+                    elif isinstance(m, ToolMessage):
+                        c = chamadas.get(m.tool_call_id, {})
+                        if registrar(conversa, m.name, c.get("args"), m.text, m.status == "error"):
+                            desenhar_bancada(painel, conversa)
+                    elif isinstance(m, HumanMessage) and m.additional_kwargs.get("verificacao"):
+                        status.write("Conferindo a resposta: um passo não foi confirmado, refazendo")
+                if no == "agente" and not any(getattr(m, "tool_calls", None) for m in mensagens):
+                    status.update(label="Escrevendo a resposta...", expanded=True)
+
+            try:
+                texto, b = asyncio.run(rodar_agente(conversa["id"], contexto + pedido, ao_progresso))
+                status.update(label="Pronto", state="complete", expanded=False)
+            except Exception as erro:  # ex.: token ausente, cota do modelo, wokwi-cli não instalado
+                status.update(label="Erro", state="error", expanded=True)
+                texto, b = remover_segredos(f"Não consegui responder: {erro}")[0], None
+
+    conversa["historico"].append({"papel": "assistant", "texto": texto, "bastidores": b})
+    conversas.salvar(conversa)
+    st.rerun()
+
+
+coluna_chat, coluna_bancada = st.columns([11, 10], gap="large")
 
 with coluna_bancada:
-    st.subheader("Bancada")
-    mostrar_bancada()
+    painel = st.empty()
+    desenhar_bancada(painel, conversa)
 
 with coluna_chat:
-    mensagens = st.container(height=640, border=False)
-    with mensagens:
-        for item in st.session_state.historico:
+    area_mensagens = st.container(height=640, border=False)
+    with area_mensagens:
+        abertura = st.empty()
+        if not conversa["historico"]:
+            with abertura.container():
+                abrir_conversa_vazia(conversa)
+        for item in conversa["historico"]:
             with st.chat_message(item["papel"]):
                 st.markdown(item["texto"])
                 if item.get("bastidores"):
                     mostrar_bastidores(item["bastidores"])
-        if not st.session_state.historico:
-            st.info(
-                "Descreva o circuito que você quer montar, por exemplo: "
-                "\"Monte um termômetro com DHT22 e display SSD1306 no ESP32\", ou pergunte algo de um datasheet. "
-                "O circuito aparece na bancada ao lado, e você pode pedir mudanças nele."
-            )
+        if conversa["historico"] and conversa["historico"][-1]["papel"] == "user":
+            # a página foi fechada ou recarregada no meio da resposta
+            st.caption("A resposta a este pedido foi interrompida antes de terminar.")
+            if st.button("Enviar de novo", icon=":material/refresh:", type="tertiary"):
+                st.session_state.pendente = conversa["historico"].pop()["texto"]
+                st.rerun()
 
-    if pedido := st.chat_input("Descreva o circuito ou peça uma mudança"):
-        # o agente sabe qual projeto está aberto na bancada (pode ter sido escolhido pelo usuário)
-        contexto = f"[Projeto aberto na bancada: {st.session_state.projeto}]\n" if st.session_state.projeto else ""
-        st.session_state.historico.append({"papel": "user", "texto": pedido})
-        with mensagens:
-            with st.chat_message("user"):
-                st.markdown(pedido)
-            with st.chat_message("assistant"):
-                with st.status("Pensando...", expanded=False) as status:
-                    try:
-                        texto, b = asyncio.run(responder(
-                            checkpointer(), st.session_state.thread_id, contexto + pedido, modelo(),
-                            ao_progresso=lambda passo: status.update(label=passo[:1].upper() + passo[1:] + "..."),
-                        ))
-                        status.update(label="Pronto", state="complete")
-                    except Exception as erro:  # ex.: token ausente, cota do modelo, wokwi-cli não instalado
-                        status.update(label="Erro", state="error")
-                        texto, b = remover_segredos(f"Não consegui responder: {erro}")[0], None
-        st.session_state.historico.append({"papel": "assistant", "texto": texto, "bastidores": b})
-        if b:
-            atualizar_bancada(b)
-        st.rerun()  # redesenha a bancada com o projeto atualizado
+    digitado = st.chat_input("Descreva o circuito ou peça uma mudança")
+    pedido = digitado or st.session_state.pop("pendente", None)
+    if pedido:
+        responder_pedido(conversa, pedido, area_mensagens, painel, abertura)

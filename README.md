@@ -180,9 +180,11 @@ As skills ficam em `skills/<nome>/SKILL.md`, com frontmatter `name` e `descripti
 
 ### Memória
 
-Checkpointer do LangGraph (`InMemorySaver`) com um `thread_id` por conversa. O botão "Nova conversa" gera um novo UUID.
+Checkpointer do LangGraph com um `thread_id` por conversa:
+- **Interface:** `AsyncSqliteSaver` em `dados/conversas/memoria.sqlite`. As conversas sobrevivem a recarregar a página e a reiniciar o servidor. O id da conversa ativa fica na URL (`?c=<id>`), e "Nova bancada" gera outro UUID. Apagar uma bancada apaga também a memória dela (`adelete_thread`).
+- **Terminal (`scripts/conversar.py`):** `InMemorySaver`, que basta para testes.
 
-As ferramentas do Wokwi só funcionam enquanto a sessão MCP está aberta, e ela é aberta a cada resposta. Por isso o grafo é montado de novo a cada resposta, com as ferramentas da sessão, e o checkpointer é criado uma vez só (`@st.cache_resource` na interface) e passado para todos os grafos. É o checkpointer que guarda as conversas; montar o grafo é barato.
+As ferramentas do Wokwi só funcionam enquanto a sessão MCP está aberta, e ela é aberta a cada resposta. Por isso o grafo é montado de novo a cada resposta, com as ferramentas da sessão, e recebe o mesmo checkpointer. É o checkpointer que guarda as conversas; montar o grafo é barato. Como o Streamlit roda cada resposta num `asyncio.run` novo, a conexão com o SQLite é aberta por resposta.
 
 ### Guardrails
 
@@ -205,17 +207,27 @@ A resposta revisada substitui a original no estado (mesmo id de mensagem), para 
 
 ### Interface
 
-Streamlit (`app.py`) com o chat à esquerda e a **bancada** à direita, botão de nova conversa na sidebar e um expander "Bastidores" em cada resposta.
+Streamlit (`app.py` e a pasta `interface/`), em tema escuro, com o chat à esquerda e a **bancada** à direita. Cada conversa é uma bancada: o projeto nasce dentro da conversa e as bancadas ficam na barra lateral, com o nome do projeto.
 
-A bancada (`painel_bancada.py`) desenha o circuito do projeto em que o agente está trabalhando e se atualiza a cada resposta. O usuário acompanha a montagem e pede mudanças no chat ("troque o LED para o GPIO18"); o agente lê o projeto aberto com `ler_projeto`, altera e salva com o mesmo nome, e o que mudou aparece em destaque (fio tracejado, peça com contorno). Também é possível abrir um projeto salvo pelo seletor. Abas:
-- **Circuito:** peças desenhadas com a biblioteca `@wokwi/elements` (MIT) e placas (ESP32 DevKitC V4, display SSD1306) com os desenhos do repositório `wokwi-boards`, fios entre as coordenadas dos pinos e, no display, a última imagem capturada da simulação. As duas fontes são carregadas por CDN em versão fixa e não ficam no nosso repositório (o `wokwi-boards` não declara licença).
+**Fluxo de uso:**
+1. A tela inicial mostra sugestões clicáveis ("Termômetro com display", "Alerta de distância"...) ou aceita qualquer pedido no chat.
+2. Enquanto o agente trabalha, o status lista cada passo em português ("Consultando o datasheet do DHT22", "Montando na bancada", "Compilando o firmware", "Fotografando o display").
+3. A bancada se redesenha **durante** a resposta, assim que o projeto é salvo. O cabeçalho mostra as etapas do protótipo ("Ligações conferidas", "Compilado, 20% da flash", "Simulado", "Serial confirmada"), em vermelho quando algo falha.
+4. O usuário pede mudanças no chat ("troque o LED para o GPIO18"). O agente lê o projeto da conversa com `ler_projeto`, altera e salva com o mesmo nome, e o que mudou aparece com contorno laranja.
+5. "Abrir projeto salvo" abre um projeto de `projetos/` numa bancada nova. Se a página for fechada no meio de uma resposta, a conversa avisa e oferece "Enviar de novo".
+
+**Abas da bancada:**
+- **Circuito:** peças desenhadas com a biblioteca `@wokwi/elements` (MIT) e placas (ESP32 DevKitC V4, display SSD1306) com os desenhos do repositório `wokwi-boards`, numa mesa com grade. Os fios saem perpendiculares à borda do pino e têm um ponto em cada ponta; o display mostra a última imagem capturada da simulação. As duas fontes são carregadas por CDN em versão fixa e não ficam no nosso repositório (o `wokwi-boards` não declara licença).
 - **Ligações:** tabela de/para com a cor do fio, marcando as novas.
+- **Materiais:** a lista de materiais da ferramenta `gerar_bom`.
 - **Código:** o sketch atual.
-- **Serial:** a última saída lida da simulação.
+- **Serial:** a última saída lida da simulação, sem o texto de boot do ESP32.
 
-A simulação continua rodando no `wokwi-cli`: a bancada mostra o circuito e os resultados, mas não é um simulador dentro da página. O expander mostra o que cada guardrail fez, as skills carregadas, as ferramentas chamadas (argumentos e resultado) e os trechos recuperados, com link para o documento, página e seção. Enquanto o agente trabalha, um indicador mostra o passo atual (ex.: "Chamando compilar...").
+A simulação continua rodando no `wokwi-cli`: a bancada mostra o circuito e os resultados, mas não é um simulador dentro da página.
 
-As ferramentas MCP são assíncronas, então cada resposta roda com `astream` dentro de `asyncio.run`. O checkpointer e o modelo ficam em `@st.cache_resource`; o grafo é montado a cada resposta (veja Memória). O terminal (`scripts/conversar.py`) e a interface usam a mesma função `responder` de `agente/grafo.py`, então mostram os mesmos bastidores.
+Cada resposta tem o expander "Bastidores", com o que cada guardrail fez, as skills carregadas, as ferramentas chamadas (argumentos e resultado) e os trechos recuperados, com link para o documento, página e seção.
+
+**Arquivos:** `interface/painel.py` gera o HTML da bancada, `interface/acompanhamento.py` traduz cada ferramenta em passo e etapa (testado em `testes/test_interface.py`), `interface/conversas.py` guarda título, projeto, etapas e histórico de cada conversa em `dados/conversas/` (fora do git). O terminal (`scripts/conversar.py`) e a interface usam a mesma função `responder` de `agente/grafo.py`.
 
 ### Modelo
 
@@ -364,7 +376,7 @@ python scripts/conversar.py
 streamlit run app.py
 ```
 
-Abre em <http://localhost:8501>. Precisa das mesmas variáveis do passo 8.
+Abre em <http://localhost:8501>. Precisa das mesmas variáveis do passo 8 e de internet no navegador, porque os desenhos das peças da bancada vêm por CDN.
 
 ## Casos de teste
 
