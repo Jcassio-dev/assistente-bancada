@@ -6,7 +6,6 @@ Precisa de WOKWI_CLI_TOKEN (no .env ou no ambiente) e do wokwi-cli no PATH (ou W
 
 import asyncio
 import os
-import shutil
 import sys
 from pathlib import Path
 
@@ -14,14 +13,9 @@ from dotenv import load_dotenv
 from langchain_mcp_adapters.client import MultiServerMCPClient
 
 RAIZ = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(RAIZ))
 
-
-def caminho_wokwi_cli():
-    return (
-        os.environ.get("WOKWI_CLI")
-        or shutil.which("wokwi-cli")
-        or str(Path.home() / ".wokwi/bin/wokwi-cli")
-    )
+from agente.mcp_config import caminho_wokwi_cli  # noqa: E402
 
 
 async def main():

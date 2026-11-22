@@ -163,6 +163,8 @@ O fluxo do agente é `salvar_projeto`, `compilar`, `wokwi_start_simulation(proje
 Decisões e aprendizados:
 - No ESP32, o `wokwi.toml` precisa apontar para `build/<sketch>.ino.merged.bin`, que inclui bootloader e partições, e para o `.elf`. O `.bin` simples não dá boot.
 - As chaves ficam no `.env` e são carregadas com `python-dotenv`. Um `export` feito em outro terminal não chega aos processos do agente.
+- O agente conecta aos dois servidores pelo `MultiServerMCPClient` (`agente/mcp_config.py`), mantendo uma sessão aberta por servidor durante cada resposta. Sem a sessão, o adaptador abre um processo novo a cada chamada de ferramenta, e a simulação iniciada por `wokwi_start_simulation` terminaria antes do `wokwi_read_serial`.
+- O servidor bancada é iniciado com o mesmo Python do venv (`sys.executable`), e o `wokwi-cli mcp` recebe a pasta `projetos/` como raiz.
 
 ### Skills
 
@@ -283,7 +285,7 @@ O servidor roda via stdio e é iniciado pelo agente; para testar sozinho:
 python servidor_bancada/servidor.py
 ```
 
-Testes das funções puras e testes manuais (compilam de verdade com o arduino-cli):
+Testes das funções puras e testes manuais. Os manuais compilam de verdade com o arduino-cli e rodam o fluxo completo pelos dois servidores MCP (`salvar_projeto`, `compilar`, `wokwi_start_simulation`, `wokwi_read_serial`) com o `exemplos/teste-blink`; precisam do `WOKWI_CLI_TOKEN` no `.env`:
 
 ```bash
 pytest

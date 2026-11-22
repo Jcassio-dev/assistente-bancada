@@ -1,0 +1,78 @@
+"""Conexão com os servidores MCP: bancada (nosso) e wokwi (oficial do Wokwi).
+
+As chaves vêm do .env (load_dotenv). Os dois servidores rodam via stdio como
+processos filhos e herdam o ambiente deste processo.
+"""
+
+import os
+import shutil
+import sys
+from contextlib import AsyncExitStack, asynccontextmanager
+from pathlib import Path
+
+from dotenv import load_dotenv
+from langchain_mcp_adapters.client import MultiServerMCPClient
+from langchain_mcp_adapters.tools import load_mcp_tools
+
+RAIZ = Path(__file__).resolve().parent.parent
+
+
+def caminho_wokwi_cli():
+    """WOKWI_CLI, depois o PATH, depois a pasta padrão do instalador."""
+    candidato = os.environ.get("WOKWI_CLI") or shutil.which("wokwi-cli") or str(Path.home() / ".wokwi/bin/wokwi-cli")
+    if not Path(candidato).exists():
+        raise RuntimeError(
+            "wokwi-cli não encontrado (procurado em WOKWI_CLI, no PATH e em ~/.wokwi/bin). "
+            "Instale com: curl -L https://wokwi.com/ci/install.sh | sh"
+        )
+    return candidato
+
+
+def pasta_projetos():
+    pasta = Path(os.environ.get("PASTA_PROJETOS", RAIZ / "projetos"))
+    pasta.mkdir(parents=True, exist_ok=True)
+    return pasta
+
+
+def configuracao_servidores():
+    load_dotenv(RAIZ / ".env")
+    if not os.environ.get("WOKWI_CLI_TOKEN"):
+        raise RuntimeError(
+            "WOKWI_CLI_TOKEN não definido. Gere um token em https://wokwi.com/dashboard/ci "
+            "e coloque no .env (veja o .env.example)."
+        )
+    ambiente = dict(os.environ)  # token, PATH, ARDUINO_CLI, PASTA_PROJETOS
+    return {
+        "bancada": {
+            "transport": "stdio",
+            "command": sys.executable,  # o Python do venv, que tem o mcp instalado
+            "args": [str(RAIZ / "servidor_bancada" / "servidor.py")],
+            "env": ambiente,
+        },
+        "wokwi": {
+            "transport": "stdio",
+            "command": caminho_wokwi_cli(),
+            "args": ["mcp", "--quiet", str(pasta_projetos())],
+            "env": ambiente,
+        },
+    }
+
+
+@asynccontextmanager
+async def ferramentas_mcp():
+    """Abre uma sessão por servidor e devolve as ferramentas (7 do bancada + 11 do Wokwi).
+
+    Uso: async with ferramentas_mcp() as ferramentas: ...
+
+    O cliente.get_tools() sem sessão abre um processo novo a cada chamada de
+    ferramenta: a simulação iniciada por wokwi_start_simulation morreria antes
+    do wokwi_read_serial. Com a sessão aberta, o mesmo wokwi-cli atende todas as
+    chamadas até o fim do bloco (uma resposta do agente).
+    """
+    cliente = MultiServerMCPClient(configuracao_servidores())
+    async with AsyncExitStack() as pilha:
+        ferramentas = []
+        for nome in cliente.connections:
+            sessao = await pilha.enter_async_context(cliente.session(nome))
+            ferramentas += await load_mcp_tools(sessao, server_name=nome)
+        yield ferramentas
