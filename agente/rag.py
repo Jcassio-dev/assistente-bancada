@@ -114,7 +114,7 @@ def buscar(consulta, documento=None, k=5, modo="hibrido"):
         include=["documents", "metadatas", "distances"],
     )
     trechos = {
-        id_: {"id": id_, "texto": doc, **meta, "pontuacao": round(1 - dist, 3)}
+        id_: {"id": id_, "texto": doc, **meta, "pontuacao": round(float(1 - dist), 3)}
         for id_, doc, meta, dist in zip(r["ids"][0], r["documents"][0], r["metadatas"][0], r["distances"][0])
     }
     if modo == "denso":
@@ -132,7 +132,7 @@ def buscar(consulta, documento=None, k=5, modo="hibrido"):
         extra = colecao().get(ids=faltando, include=["documents", "metadatas", "embeddings"])
         q = embutir_consulta(consulta)
         for id_, doc, meta, emb in zip(extra["ids"], extra["documents"], extra["metadatas"], extra["embeddings"]):
-            cos = sum(a * b for a, b in zip(q, emb))  # vetores já normalizados
+            cos = float(sum(a * b for a, b in zip(q, emb)))  # vetores já normalizados; float: numpy não vai para o checkpointer
             trechos[id_] = {"id": id_, "texto": doc, **meta, "pontuacao": round(cos, 3)}
     return [trechos[i] for i in melhores]
 
