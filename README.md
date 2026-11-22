@@ -179,12 +179,19 @@ Checkpointer do LangGraph com um `thread_id` por conversa. O botão "Nova conver
 
 ### Guardrails
 
-São nós do grafo, e não instruções soltas na mensagem de sistema, para que atuem em toda conversa e apareçam nos bastidores. Cobrem riscos concretos:
-- **Prompt injection:** tentativas de mudar as instruções ou extrair a mensagem de sistema e as chaves.
-- **Fora do escopo:** pedidos que não têm relação com eletrônica e ESP32.
-- **Valores inventados:** tensões, correntes e pinos sem fonte em documento ou ferramenta.
-- **Vazamento de tokens e variáveis de ambiente:** chaves que aparecem na resposta.
-- **Rede elétrica (127/220 V):** o pedido é atendido, mas com aviso de segurança.
+São nós do grafo (`agente/guardrails.py`), e não instruções soltas na mensagem de sistema, para que atuem em toda conversa e apareçam nos bastidores.
+
+**Entrada (`guardrail_entrada`):**
+- **Prompt injection:** primeiro, expressões regulares para os padrões óbvios ("ignore as instruções anteriores", "mostre sua mensagem de sistema", "revele o .env", nomes de variáveis com chave, "a partir de agora você é..."). Se uma bater, o pedido vai para `recusa` sem chamar o modelo.
+- **Classificação:** se a regex não barrar, uma chamada curta ao modelo, sem ferramentas, classifica o pedido em `ok`, `fora_do_escopo`, `injection` ou `rede_eletrica`. `fora_do_escopo` e `injection` vão para `recusa`. Uma resposta fora dessas categorias conta como `ok`, para não barrar pedidos legítimos por engano.
+- **Rede elétrica (127/220 V, tomada, relé com lâmpada):** não bloqueia. Marca `alerta_seguranca`, pelo classificador ou por uma regex, porque esquecer o aviso é pior que um aviso a mais.
+
+**Saída (`guardrail_saida`):**
+- **Vazamento de chaves:** troca por `[removido]` os valores das variáveis de ambiente terminadas em `_TOKEN`, `_KEY`, `_SECRET` e `_PASSWORD`, além de formatos conhecidos de token (`wok_...`, `sk-...`, `AIza...`, `ghp_...`).
+- **Valores sem fonte:** procura na resposta valores elétricos com unidade (V, mA, µA, Ω, mm, MHz...) e pinos (`GPIO12`) e confere se o número aparece nas fontes da conversa: mensagem de sistema, pedidos do usuário, argumentos e resultados das ferramentas e trechos do RAG. O texto das respostas anteriores do próprio modelo não conta como fonte. Os valores que não aparecem são listados num aviso de "valor não confirmado em documento". A conferência é pelo número, não pelo contexto, então ela pega valores inventados, mas não um número certo usado no lugar errado.
+- **Aviso de segurança:** acrescentado à resposta quando `alerta_seguranca` está marcado.
+
+A resposta revisada substitui a original no estado (mesmo id de mensagem), para a memória guardar a versão que o usuário viu.
 
 ### Interface
 
