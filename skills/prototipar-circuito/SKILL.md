@@ -7,6 +7,10 @@ description: Montar e testar um circuito com ESP32 no simulador Wokwi a partir d
 
 O projeto trabalha só com ESP32: placa `board-esp32-devkit-c-v4` no Wokwi, FQBN `esp32:esp32:esp32`. Se o usuário pedir Arduino Uno, Nano, Pico ou outra placa, explique isso e ofereça o mesmo circuito no ESP32.
 
+## 0. Projeto que já existe
+
+Se o pedido for uma mudança num circuito já salvo (a mensagem traz "[Projeto aberto na bancada: <nome>]"), chame `ler_projeto(nome)` primeiro, faça a mudança sobre o diagrama e o código atuais e salve com o mesmo nome. O usuário acompanha o circuito na bancada, ao lado do chat.
+
 ## 1. Entender o pedido
 
 Antes de montar, tenha claro:
@@ -92,6 +96,7 @@ Para circuitos com entrada do usuário, use `wokwi_set_control(partId, control, 
 Chame `esperar_serial(texto=..., segundos=...)` com um texto que o sketch escreve quando funciona (ex.: `"Temperatura"`), e não `wokwi_read_serial` em sequência: o boot e os `delay()` do sketch levam alguns segundos, e a leitura imediata vem vazia. Some os `delay()` até a primeira leitura e dê folga (ex.: 20 s).
 - Se o texto não apareceu, **não diga que funcionou**. Descubra a causa (pino trocado no código ou no diagrama, alimentação, biblioteca, `delay` longo), corrija, volte à etapa 4 e simule de novo.
 - Se a leitura vier errada (`nan`, valor fora da faixa), trate como falha do mesmo jeito.
+- Se houver display, chame `capturar_display(projeto, parte, tempo_ms)` com um tempo depois do primeiro desenho (some os `delay()` e dê folga). Olhe a imagem devolvida: texto cortado, sobreposto, fora da tela ou com caracteres estranhos (ex.: `°` em fonte que não tem o símbolo) é falha. Corrija o código, compile e capture de novo.
 - Termine com `wokwi_stop_simulation()`.
 
 ## 8. Responder ao usuário

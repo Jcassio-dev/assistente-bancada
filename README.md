@@ -154,6 +154,8 @@ Servidor FastMCP (stdio) em `servidor_bancada/servidor.py`. As funções são pu
 | `gerar_bom(diagram_json)` | Lista de materiais, agrupando peças iguais. |
 | `salvar_projeto(nome, diagram_json, codigo)` | Roda o `validar_diagrama` e só grava se não houver erros: sketch, `diagram.json` e `wokwi.toml` em `projetos/<nome>/`. Recusa nomes perigosos (`../`) e placas que não sejam ESP32 e descarta pontos de fio fora do formato do Wokwi. |
 | `compilar(projeto)` | Chama o `arduino-cli` e devolve sucesso ou a lista resumida de erros (arquivo, linha, coluna e mensagem), para o agente corrigir o código. |
+| `ler_projeto(nome)` | Devolve o `diagram.json` e o código de um projeto salvo, para o agente alterar o circuito aberto na bancada a partir do que já existe. |
+| `capturar_display(projeto, parte, tempo_ms)` | Roda o `wokwi-cli` com `--screenshot-part` e devolve a imagem do display (ex.: SSD1306) para o modelo ver, além de salvar em `projetos/<nome>/telas/`. Texto cortado ou sobreposto não aparece na serial: num teste real, a imagem mostrou a temperatura sobreposta à linha de baixo, e o agente corrigiu o layout. O `wokwi_take_screenshot` do servidor do Wokwi não serve para isso, porque devolve só os primeiros 100 caracteres da imagem. |
 
 ### Servidor MCP da comunidade: Wokwi
 
@@ -195,14 +197,23 @@ São nós do grafo (`agente/guardrails.py`), e não instruções soltas na mensa
 - **Vazamento de chaves:** troca por `[removido]` os valores das variáveis de ambiente terminadas em `_TOKEN`, `_KEY`, `_SECRET` e `_PASSWORD`, além de formatos conhecidos de token (`wok_...`, `sk-...`, `AIza...`, `ghp_...`).
 - **Valores sem fonte:** procura na resposta valores elétricos com unidade (V, mA, µA, Ω, mm, MHz...) e pinos (`GPIO12`) e confere se o número aparece nas fontes da conversa: mensagem de sistema, pedidos do usuário, argumentos e resultados das ferramentas e trechos do RAG. O texto das respostas anteriores do próprio modelo não conta como fonte. Os valores que não aparecem são listados num aviso de "valor não confirmado em documento". A conferência é pelo número, não pelo contexto, então ela pega valores inventados, mas não um número certo usado no lugar errado.
 - **Aviso de segurança:** acrescentado à resposta quando `alerta_seguranca` está marcado.
-- **Saída da serial inventada:** os blocos de "saída da serial" da resposta são comparados, linha por linha, com o que `esperar_serial` e `wokwi_read_serial` devolveram nesta resposta. Se alguma linha não veio da simulação, o guardrail devolve a resposta ao agente com uma mensagem de verificação, uma vez só; se ele insistir, a resposta ganha um aviso. Num teste real, o agente afirmou ter simulado um LED sem chamar nenhuma ferramenta. Com a devolução, ele rodou o fluxo de verdade, o `salvar_projeto` recusou o LED sem resistor, ele calculou o resistor com `resistor_led`, salvou, compilou e mostrou a serial real.
+- **Afirmações sem confirmação:** a resposta não pode dizer que alterou, salvou, compilou ou simulou sem a ferramenta correspondente ter rodado com sucesso nesta resposta (`salvar_projeto`, `compilar`, `wokwi_start_simulation`). Frases negadas ("ainda não simulei") não contam. Num teste pela interface, o agente respondeu "o LED foi trocado para o GPIO18" sem ter chamado `salvar_projeto`.
+- **Saída da serial inventada:** os blocos de "saída da serial" da resposta são comparados, linha por linha, com o que `esperar_serial` e `wokwi_read_serial` devolveram nesta resposta. Nos dois casos, o guardrail devolve a resposta ao agente com uma mensagem de verificação, uma vez só; se ele insistir, a resposta ganha um aviso. Num teste real, o agente afirmou ter simulado um LED sem chamar nenhuma ferramenta. Com a devolução, ele rodou o fluxo de verdade, o `salvar_projeto` recusou o LED sem resistor, ele calculou o resistor com `resistor_led`, salvou, compilou e mostrou a serial real.
 - Leituras de sensor (`°C`, `%`) também passam pela conferência de valores sem fonte.
 
 A resposta revisada substitui a original no estado (mesmo id de mensagem), para a memória guardar a versão que o usuário viu.
 
 ### Interface
 
-Streamlit (`app.py`) com chat, botão de nova conversa na sidebar e um expander "Bastidores" em cada resposta. O expander mostra o que cada guardrail fez, as skills carregadas, as ferramentas chamadas (argumentos e resultado) e os trechos recuperados, com link para o documento, página e seção. Enquanto o agente trabalha, um indicador mostra o passo atual (ex.: "Chamando compilar...").
+Streamlit (`app.py`) com o chat à esquerda e a **bancada** à direita, botão de nova conversa na sidebar e um expander "Bastidores" em cada resposta.
+
+A bancada (`painel_bancada.py`) desenha o circuito do projeto em que o agente está trabalhando e se atualiza a cada resposta. O usuário acompanha a montagem e pede mudanças no chat ("troque o LED para o GPIO18"); o agente lê o projeto aberto com `ler_projeto`, altera e salva com o mesmo nome, e o que mudou aparece em destaque (fio tracejado, peça com contorno). Também é possível abrir um projeto salvo pelo seletor. Abas:
+- **Circuito:** peças desenhadas com a biblioteca `@wokwi/elements` (MIT) e placas (ESP32 DevKitC V4, display SSD1306) com os desenhos do repositório `wokwi-boards`, fios entre as coordenadas dos pinos e, no display, a última imagem capturada da simulação. As duas fontes são carregadas por CDN em versão fixa e não ficam no nosso repositório (o `wokwi-boards` não declara licença).
+- **Ligações:** tabela de/para com a cor do fio, marcando as novas.
+- **Código:** o sketch atual.
+- **Serial:** a última saída lida da simulação.
+
+A simulação continua rodando no `wokwi-cli`: a bancada mostra o circuito e os resultados, mas não é um simulador dentro da página. O expander mostra o que cada guardrail fez, as skills carregadas, as ferramentas chamadas (argumentos e resultado) e os trechos recuperados, com link para o documento, página e seção. Enquanto o agente trabalha, um indicador mostra o passo atual (ex.: "Chamando compilar...").
 
 As ferramentas MCP são assíncronas, então cada resposta roda com `astream` dentro de `asyncio.run`. O checkpointer e o modelo ficam em `@st.cache_resource`; o grafo é montado a cada resposta (veja Memória). O terminal (`scripts/conversar.py`) e a interface usam a mesma função `responder` de `agente/grafo.py`, então mostram os mesmos bastidores.
 
