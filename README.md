@@ -1,6 +1,6 @@
 # Assistente de Bancada
 
-**Dupla:** _Nome do participante 1_ e _Nome do participante 2_
+**Dupla:** José Cássio e Felipe Baraúna
 
 ---
 
