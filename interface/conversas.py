@@ -67,6 +67,19 @@ def listar():
     return sorted(itens, key=lambda c: c["atualizada"] or 0, reverse=True)
 
 
+def quando(instante, agora=None):
+    """'agora', 'há 5 min', 'há 3 h', 'ontem' ou 'há 4 dias'."""
+    segundos = max(0, (agora or time.time()) - (instante or 0))
+    if segundos < 60:
+        return "agora"
+    if segundos < 3600:
+        return f"há {int(segundos // 60)} min"
+    if segundos < 86400:
+        return f"há {int(segundos // 3600)} h"
+    dias = int(segundos // 86400)
+    return "ontem" if dias == 1 else f"há {dias} dias"
+
+
 def apagar(id_):
     try:
         caminho(id_).unlink(missing_ok=True)

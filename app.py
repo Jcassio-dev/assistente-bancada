@@ -8,6 +8,7 @@ Uso: streamlit run app.py
 
 import asyncio
 import json
+from collections import Counter
 from pathlib import Path
 
 import streamlit as st
@@ -119,6 +120,10 @@ def abrir(id_=None):
 
 
 def abrir_projeto(projeto):
+    existente = next((c for c in conversas.listar() if c["projeto"] == projeto), None)
+    if existente:  # o projeto já tem bancada: volta para ela em vez de criar outra
+        abrir(existente["id"])
+        return
     conversa = conversas.nova(projeto)
     conversa["diagrama"] = ler_diagrama(projeto)
     conversas.salvar(conversa)
@@ -139,9 +144,13 @@ with st.sidebar:
     with st.container(key="lista-bancadas"):
         if salvas:
             st.caption("Suas bancadas")
+        repetidos = Counter(c["titulo"] for c in salvas)
         for c in salvas:
             ativa = c["id"] == conversa["id"]
-            st.button(c["titulo"] or "Sem título", key=f"conv-{c['id']}", use_container_width=True,
+            titulo = c["titulo"] or "Sem título"
+            if repetidos[c["titulo"]] > 1:  # duas bancadas do mesmo projeto: diferencia pela data
+                titulo += f" ({conversas.quando(c['atualizada'])})"
+            st.button(titulo, key=f"conv-{c['id']}", use_container_width=True,
                       type="secondary" if ativa else "tertiary",
                       icon=":material/developer_board:" if c["projeto"] else ":material/chat_bubble:",
                       on_click=abrir, args=(c["id"],))
@@ -210,7 +219,9 @@ def ligar_simulacao(conversa, diagrama):
 def tratar_eventos(conversa, resultado):
     """Peça arrastada/girada na mesa e controles da simulação ao vivo."""
     if movida := getattr(resultado, "mover", None):
-        mover_peca(conversa["projeto"], movida["id"], movida["left"], movida["top"], movida.get("rotate", 0))
+        # uma peça arrastada, ou várias afastadas sozinhas ao montar ({"pecas": [...]})
+        for m in movida.get("pecas") or [movida]:
+            mover_peca(conversa["projeto"], m["id"], m["left"], m["top"], m.get("rotate", 0))
     sim = simulacoes().get(conversa["id"])
     if sim and (controle := getattr(resultado, "controle", None)):
         sim.controlar(controle["parte"], controle["controle"], controle["valor"])
@@ -288,7 +299,7 @@ def desenhar_bancada(alvo, conversa, durante_resposta=False):
                 if durante_resposta:
                     st.session_state.desenhos = st.session_state.get("desenhos", 0) + 1
                 chave = f"mesa-{conversa['id']}" + (f"-{st.session_state.desenhos}" if durante_resposta else "")
-                resultado = mesa(chave, diagrama, telas, conversa.get("destaques"))
+                resultado = mesa(chave, diagrama, telas, conversa.get("destaques"), editavel=not durante_resposta)
                 if not durante_resposta:
                     tratar_eventos(conversa, resultado)
                 if conversa.get("destaques") and diagrama:

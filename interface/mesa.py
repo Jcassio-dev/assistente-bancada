@@ -30,8 +30,9 @@ CSS = """
 .peca.arrastando { cursor: grabbing; filter: drop-shadow(0 6px 10px rgba(0,0,0,.5)); z-index: 5; }
 .peca img { display: block; pointer-events: none; }
 .tela { position: absolute; image-rendering: pixelated; pointer-events: none; }
-.rotulo { position: absolute; left: 0; top: 100%; margin-top: 2px; font-size: 10px; color: #9db5aa;
-          white-space: nowrap; font-family: ui-monospace, monospace; pointer-events: none; }
+.rotulo { position: absolute; font-size: 10px; line-height: 1; color: #b4cbbf; background: rgba(20,32,28,.78);
+          padding: 2px 4px; border-radius: 3px; white-space: nowrap; font-family: ui-monospace, monospace;
+          pointer-events: none; z-index: 4; }
 .desconhecida { border: 1px dashed #999; padding: 6px; font-size: 11px; background: #fff; color: #222; }
 .nova { outline: 2px dashed #e8a33d; outline-offset: 4px; border-radius: 4px; }
 svg.fios { position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none; }
@@ -153,10 +154,11 @@ async function montarPeca(b, parte) {
   } else {
     caixa.innerHTML = '<div class="desconhecida">' + parte.id + "<br>" + parte.type + "</div>";
   }
-  const rotulo = document.createElement("div");
-  rotulo.className = "rotulo";
-  rotulo.textContent = parte.id;
-  caixa.appendChild(rotulo);
+  // o rótulo fica fora da peça para não girar junto; desenharFios o posiciona
+  peca.rotulo = document.createElement("div");
+  peca.rotulo.className = "rotulo";
+  peca.rotulo.textContent = parte.id;
+  b.mesa.appendChild(peca.rotulo);
   if (peca.rotacao) caixa.style.transform = "rotate(" + peca.rotacao + "deg)";
   arrastavel(b, peca);
   return peca;
@@ -175,7 +177,66 @@ function posicaoPino(peca, nome) {
            y: peca.caixa.offsetTop + h / 2 + dx * Math.sin(ang) + dy * Math.cos(ang), saida };
 }
 
+function contorno(p) {
+  // retângulo da peça na mesa; girada de 90 graus, troca largura e altura
+  const w = p.caixa.offsetWidth, h = p.caixa.offsetHeight;
+  const [bw, bh] = Math.round(p.rotacao / 90) % 2 ? [h, w] : [w, h];
+  const cx = p.caixa.offsetLeft + w / 2, cy = p.caixa.offsetTop + h / 2;
+  return { x0: cx - bw / 2, y0: cy - bh / 2, x1: cx + bw / 2, y1: cy + bh / 2 };
+}
+
+function desembaracar(b) {
+  // o agente escolhe as posições e às vezes põe uma peça em cima da placa ou de outra peça:
+  // procura a posição livre mais próxima, em volta da original, e move a peça para lá
+  const pecas = Object.values(b.pecas);
+  const folga = 10, movidas = [];
+  const livre = (p, c) => pecas.every((q) => {
+    if (q === p) return true;
+    const o = contorno(q);
+    return c.x1 + folga <= o.x0 || c.x0 >= o.x1 + folga || c.y1 + folga <= o.y0 || c.y0 >= o.y1 + folga;
+  });
+  for (const p of pecas) {
+    if (p.parte.type.startsWith("board-")) continue;
+    const c = contorno(p);
+    if (livre(p, c)) continue;
+    let melhor = null;
+    for (let d = 10; d <= 400 && !melhor; d += 10) {
+      for (const [dx, dy] of [[-d, 0], [d, 0], [0, d], [0, -d]]) {
+        if (livre(p, { x0: c.x0 + dx, x1: c.x1 + dx, y0: c.y0 + dy, y1: c.y1 + dy })) { melhor = [dx, dy]; break; }
+      }
+    }
+    if (!melhor) continue;
+    p.parte.left = Math.round((p.parte.left || 0) + melhor[0]);
+    p.parte.top = Math.round((p.parte.top || 0) + melhor[1]);
+    p.caixa.style.left = p.parte.left + "px";
+    p.caixa.style.top = p.parte.top + "px";
+    movidas.push({ id: p.parte.id, left: p.parte.left, top: p.parte.top, rotate: p.rotacao });
+  }
+  return movidas;
+}
+
+function posicionarRotulos(b) {
+  const pecas = Object.values(b.pecas);
+  const caixas = new Map(pecas.map((p) => [p, contorno(p)]));
+  const bate = (r, dono) => pecas.some((q) => {
+    if (q === dono) return false;
+    const c = caixas.get(q);
+    return r.x0 < c.x1 && r.x1 > c.x0 && r.y0 < c.y1 && r.y1 > c.y0;
+  });
+  for (const p of pecas) {
+    if (!p.rotulo) continue;
+    const c = caixas.get(p), lw = p.rotulo.offsetWidth, lh = p.rotulo.offsetHeight;
+    // embaixo; se cobrir outra peça, à direita, à esquerda ou em cima
+    const opcoes = [[c.x0, c.y1 + 4], [c.x1 + 4, (c.y0 + c.y1 - lh) / 2],
+                    [c.x0 - lw - 4, (c.y0 + c.y1 - lh) / 2], [c.x0, c.y0 - lh - 4]];
+    const [x, y] = opcoes.find(([x, y]) => !bate({ x0: x, y0: y, x1: x + lw, y1: y + lh }, p)) || opcoes[0];
+    p.rotulo.style.left = x + "px";
+    p.rotulo.style.top = y + "px";
+  }
+}
+
 function desenharFios(b) {
+  posicionarRotulos(b);
   b.svg.replaceChildren();
   const faltando = [];
   const pontos = [];
@@ -238,7 +299,7 @@ function foraDaArea(b) {
 function arrastavel(b, peca) {
   const { caixa, parte } = peca;
   caixa.addEventListener("pointerdown", (e) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || !b.editavel) return;
     e.preventDefault();
     caixa.setPointerCapture(e.pointerId);
     const inicio = { x: e.clientX, y: e.clientY, left: parte.left || 0, top: parte.top || 0 };
@@ -266,6 +327,7 @@ function arrastavel(b, peca) {
     caixa.addEventListener("pointercancel", soltar, { once: true });
   });
   caixa.addEventListener("dblclick", () => {
+    if (!b.editavel) return;
     peca.rotacao = ((peca.rotacao || 0) + 90) % 360;
     caixa.style.transform = peca.rotacao ? "rotate(" + peca.rotacao + "deg)" : "";
     const pontos = desenharFios(b);
@@ -279,7 +341,8 @@ async function montar(b, dados) {
   b.diagrama = JSON.parse(JSON.stringify(dados.diagrama || { parts: [], connections: [] }));
   b.telas = dados.telas || {};
   b.destaques = new Set(dados.destaques || []);
-  for (const p of Object.values(b.pecas)) p.caixa.remove();
+  // remove também as peças de um desenho interrompido, que não chegaram a b.pecas
+  b.mesa.querySelectorAll(".peca, .rotulo").forEach((el) => el.remove());
   b.pecas = {};
   b.svg.replaceChildren();
   b.area.querySelector(".vazia")?.remove();
@@ -297,8 +360,10 @@ async function montar(b, dados) {
   b.pecas = pecas;
   await new Promise((r) => setTimeout(r, 120));  // as imagens das placas definem o tamanho
   if (versao !== b.versao) return;
+  const movidas = desembaracar(b);
   enquadrar(b, desenharFios(b));
-  b.dica.textContent = "Arraste para mover. Duplo clique gira.";
+  if (movidas.length && b.editavel) b.enviar("mover", { pecas: movidas });
+  b.dica.textContent = b.editavel ? "Arraste para mover. Duplo clique gira." : "";
   atualizarAoVivo(b, b.ultimoDados);
 }
 
@@ -356,6 +421,7 @@ export default function (component) {
   let b = raiz.__bancada;
   if (!b) b = raiz.__bancada = estrutura(raiz);
   b.enviar = setTriggerValue;
+  b.editavel = data.editavel !== false;  // durante a resposta do agente, um evento interromperia a resposta
   b.area.style.setProperty("--altura", (data.altura || 480) + "px");
   b.ultimoDados = data;
   // só redesenha quando peças, ligações, telas ou destaques mudam; posição mudada aqui já está na tela
@@ -374,8 +440,12 @@ export default function (component) {
 _componente = st.components.v2.component("assistente_bancada_mesa", html=HTML, css=CSS, js=JS)
 
 
-def mesa(chave, diagrama, telas=None, destaques=None, ao_vivo=None, controles=None, altura=480):
-    """Desenha a mesa e devolve o resultado com os gatilhos mover, controle e botao."""
+def mesa(chave, diagrama, telas=None, destaques=None, ao_vivo=None, controles=None, altura=480, editavel=True):
+    """Desenha a mesa e devolve o resultado com os gatilhos mover, controle e botao.
+
+    editavel=False (durante a resposta do agente): não arrasta nem grava posições, porque
+    o evento reexecutaria o script e interromperia a resposta.
+    """
     dados = {
         "diagrama": diagrama,
         "telas": telas or {},
@@ -388,6 +458,7 @@ def mesa(chave, diagrama, telas=None, destaques=None, ao_vivo=None, controles=No
             for parte, _tipo, lista in (controles or [])
         ],
         "altura": altura,
+        "editavel": editavel,
     }
     return _componente(key=chave, data=dados, on_mover_change=lambda: None,
                        on_controle_change=lambda: None, on_botao_change=lambda: None)

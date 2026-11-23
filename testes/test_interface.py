@@ -132,3 +132,11 @@ def test_mover_peca_grava_posicao_e_rotacao(projetos):
     assert mover_peca("pisca", "led1", 0, 0, 0) and "rotate" not in next(
         p for p in acompanhamento.ler_diagrama("pisca")["parts"] if p["id"] == "led1")
     assert not mover_peca("pisca", "nao-existe", 0, 0) and not mover_peca("outro", "led1", 0, 0)
+
+
+def test_quando():
+    assert conversas.quando(1000, agora=1030) == "agora"
+    assert conversas.quando(0, agora=300) == "há 5 min"
+    assert conversas.quando(0, agora=3 * 3600) == "há 3 h"
+    assert conversas.quando(0, agora=86400 + 10) == "ontem"
+    assert conversas.quando(0, agora=4 * 86400) == "há 4 dias"
