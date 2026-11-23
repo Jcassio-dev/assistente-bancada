@@ -173,11 +173,13 @@ São nós do grafo (`agente/guardrails.py`), e não instruções soltas na mensa
 
 **Saída (`guardrail_saida`):**
 - **Vazamento de chaves:** troca por `[removido]` os valores das variáveis de ambiente terminadas em `_TOKEN`, `_KEY`, `_SECRET` e `_PASSWORD`, além de formatos conhecidos de token (`wok_...`, `sk-...`, `AIza...`, `ghp_...`).
-- **Valores sem fonte:** procura na resposta valores elétricos com unidade (V, mA, µA, Ω, mm, MHz...) e pinos (`GPIO12`) e confere se o número aparece nas fontes da conversa: mensagem de sistema, pedidos do usuário, argumentos e resultados das ferramentas e trechos do RAG. O texto das respostas anteriores do próprio modelo não conta como fonte. Os valores que não aparecem são listados num aviso de "valor não confirmado em documento". A conferência é pelo número, não pelo contexto, então ela pega valores inventados, mas não um número certo usado no lugar errado.
+- **Valores sem fonte:** procura na resposta valores elétricos com unidade (V, mA, µA, Ω, mm, MHz...) e pinos (`GPIO12`) e confere se o número aparece nas fontes da conversa: mensagem de sistema, pedidos do usuário, argumentos e resultados das ferramentas e trechos do RAG. O texto das respostas anteriores do próprio modelo não conta como fonte. Os valores que não aparecem são listados num aviso de "valor não confirmado em documento". A conferência é pelo número, não pelo contexto, então ela pega valores inventados, mas não um número certo usado no lugar errado. Um valor arredondado confere com a fonte ("8,7 mA" com 8,67 de `resistor_led`), mas um inteiro só confere se for exato, e frações como "1/8 W" não são lidas como valor.
 - **Aviso de segurança:** acrescentado à resposta quando `alerta_seguranca` está marcado.
 - **Afirmações sem confirmação:** a resposta não pode dizer que alterou, salvou, compilou ou simulou sem a ferramenta correspondente ter rodado com sucesso nesta resposta (`salvar_projeto`, `compilar`, `wokwi_start_simulation`). Frases negadas ("ainda não simulei") não contam. Num teste pela interface, o agente respondeu "o LED foi trocado para o GPIO18" sem ter chamado `salvar_projeto`.
 - **Saída da serial inventada:** os blocos de "saída da serial" da resposta são comparados, linha por linha, com o que `esperar_serial` e `wokwi_read_serial` devolveram nesta resposta. Nos dois casos, o guardrail devolve a resposta ao agente com uma mensagem de verificação, uma vez só; se ele insistir, a resposta ganha um aviso. Num teste real, o agente afirmou ter simulado um LED sem chamar nenhuma ferramenta. Com a devolução, ele rodou o fluxo de verdade, o `salvar_projeto` recusou o LED sem resistor, ele calculou o resistor com `resistor_led`, salvou, compilou e mostrou a serial real.
 - Leituras de sensor (`°C`, `%`) também passam pela conferência de valores sem fonte.
+- **Palavras em outro alfabeto:** o modelo leve às vezes solta uma palavra em chinês no meio do português ("força de驱动"). A saída remove esses trechos.
+- A serial do Wokwi chega com UTF-8 lido como Latin-1 ("24.00Â°C"). Ela é corrigida antes de ir para o agente, para o guardrail e para a bancada; sem isso, uma linha certa escrita pelo agente com "°C" era tomada por serial inventada.
 
 A resposta revisada substitui a original no estado (mesmo id de mensagem), para a memória guardar a versão que o usuário viu.
 
@@ -190,10 +192,10 @@ Streamlit (`app.py` e a pasta `interface/`), em tema escuro, com o chat à esque
 2. Enquanto o agente trabalha, o status lista cada passo em português ("Consultando o datasheet do DHT22", "Montando na bancada", "Compilando o firmware", "Fotografando o display").
 3. A bancada se redesenha **durante** a resposta, assim que o projeto é salvo. O cabeçalho mostra as etapas do protótipo ("Ligações conferidas", "Compilado, 20% da flash", "Simulado", "Serial confirmada"), em vermelho quando algo falha.
 4. O usuário pede mudanças no chat ("troque o LED para o GPIO18"). O agente lê o projeto da conversa com `ler_projeto`, altera e salva com o mesmo nome, e o que mudou aparece com contorno laranja.
-5. "Abrir projeto salvo" abre um projeto de `projetos/` numa bancada nova. Se a página for fechada no meio de uma resposta, a conversa avisa e oferece "Enviar de novo".
+5. "Abrir projeto salvo" volta para a bancada do projeto, se ela existir, ou abre uma nova. Bancadas com o mesmo nome aparecem com a data na barra lateral. Se a página for fechada no meio de uma resposta, a conversa avisa e oferece "Enviar de novo".
 
 **Abas da bancada:**
-- **Circuito:** a mesa (`interface/mesa.py`) é um componente Streamlit v2: roda na própria página, sem iframe, recebe dados novos sem ser montada de novo e devolve eventos ao Python. As peças podem ser **arrastadas** (os fios acompanham) e **giradas com duplo clique**; a nova posição é gravada no `diagram.json` e o agente parte dela nas próximas mudanças. Peças desenhadas com a biblioteca `@wokwi/elements` (MIT) e placas (ESP32 DevKitC V4, display SSD1306) com os desenhos do repositório `wokwi-boards`, numa mesa com grade. Os fios saem perpendiculares à borda do pino e têm um ponto em cada ponta; o display mostra a última imagem capturada da simulação. As duas fontes são carregadas por CDN em versão fixa e não ficam no nosso repositório (o `wokwi-boards` não declara licença).
+- **Circuito:** a mesa (`interface/mesa.py`) é um componente Streamlit v2: roda na própria página, sem iframe, recebe dados novos sem ser montada de novo e devolve eventos ao Python. As peças podem ser **arrastadas** (os fios acompanham) e **giradas com duplo clique**; a nova posição é gravada no `diagram.json` e o agente parte dela nas próximas mudanças. Peças desenhadas com a biblioteca `@wokwi/elements` (MIT) e placas (ESP32 DevKitC V4, display SSD1306) com os desenhos do repositório `wokwi-boards`, numa mesa com grade. Os fios saem perpendiculares à borda do pino e têm um ponto em cada ponta; o nome de cada peça fica sempre de pé e muda de lado quando cobriria uma peça vizinha; quando o agente põe uma peça em cima de outra (num teste, o resistor caiu em cima do ESP32), a mesa procura a posição livre mais próxima e grava no `diagram.json`; durante a resposta do agente a mesa fica travada, porque arrastar uma peça reexecutaria o script e interromperia a resposta; o display mostra a última imagem capturada da simulação. As duas fontes são carregadas por CDN em versão fixa e não ficam no nosso repositório (o `wokwi-boards` não declara licença).
 - **Ligações:** tabela de/para com a cor do fio, marcando as novas.
 - **Materiais:** a lista de materiais da ferramenta `gerar_bom`.
 - **Código:** o sketch atual.
@@ -364,7 +366,7 @@ Abre em <http://localhost:8501>. Precisa das mesmas variáveis do passo 8 e de i
 
 ## Casos de teste
 
-Os casos foram executados em 22/11/2026 no grafo real (a mesma função `responder` da interface e do terminal), com o `gemini-3.5-flash-lite`, o servidor bancada e o `wokwi-cli` 0.29.1. O script `scripts/casos_de_teste.py` roda os casos e grava em `dados/casos_de_teste/` a resposta, as ferramentas chamadas, as skills, os guardrails e os trechos recuperados de cada um. O resultado obtido abaixo é o que saiu nesses arquivos, inclusive as falhas. Os casos 3 e 4 são dois turnos da mesma conversa. Os casos marcados como **desafiador** exploram os limites do agente.
+A primeira rodada foi executada em 22/11/2026 e a segunda em 23/11/2026, no grafo real (a mesma função `responder` da interface e do terminal), com o `gemini-3.5-flash-lite`, o servidor bancada e o `wokwi-cli` 0.29.1. O script `scripts/casos_de_teste.py` roda os casos e grava em `dados/casos_de_teste/` a resposta, as ferramentas chamadas, as skills, os guardrails e os trechos recuperados de cada um. O resultado obtido abaixo é o que saiu nesses arquivos, inclusive as falhas; o script grava por cima, e a pasta guarda a última execução. Os casos 3 e 4 são dois turnos da mesma conversa. Os casos marcados como **desafiador** exploram os limites do agente.
 
 | # | Componente | Entrada | Resultado esperado | Resultado obtido | Aprovado? |
 |---|---|---|---|---|---|
@@ -381,11 +383,43 @@ Os casos foram executados em 22/11/2026 no grafo real (a mesma função `respond
 
 ### Taxa de acerto
 
-**9 de 10 casos aprovados (90%).**
+**Primeira rodada: 9 de 10 casos aprovados (90%).**
 
-### Análise dos erros
+### Análise dos erros da primeira rodada
 
 - **Pedido misto recusado inteiro (caso 10, reprovado):** o classificador de entrada só devolve uma categoria para o pedido todo. Como metade era claramente fora do escopo (receita), o pedido inteiro foi para `recusa`, e a parte aproveitável (semáforo, que tem equivalente com ESP32) se perdeu. A mensagem de recusa também é fixa e não fala da troca de placa. Uma correção seria deixar passar pedidos com uma parte dentro do escopo e deixar o agente recusar o resto, ou ter uma categoria própria para "outra placa".
 - **Iniciativa demais (caso 7, turno 1):** o usuário só deu uma informação, e o agente montou, compilou e simulou um projeto inteiro. Na primeira versão da resposta, ele ainda escreveu uma leitura da serial que não tinha vindo da simulação. O guardrail de saída pegou e devolveu a resposta, e a versão final mostrou a serial real, mas o turno custou 48 s e uma simulação que ninguém pediu. A serial também saiu com "Â°C", porque o sketch escreveu o símbolo de grau em UTF-8.
 - **Estilo e ruído do modelo leve (casos 1 e 9):** um caractere chinês no meio de uma frase e setas em LaTeX apesar da regra de estilo. Não mudam o conteúdo técnico, mas mostram o limite de um modelo barato. Os valores "250 V" e "5V" do caso 9 são conhecimento geral do modelo, não dos documentos, e o guardrail de saída os marcou como não confirmados, como esperado.
 - **Id de peça errado (caso 5):** o agente chamou `capturar_display` com `oled` em vez de `oled1`. A ferramenta devolveu a lista de displays do diagrama e ele se corrigiu sozinho, o que mostra o valor de mensagens de erro que dizem o que é válido.
+
+### Correções e segunda rodada
+
+Depois da primeira rodada, cada erro virou uma correção:
+
+- **Pedido misto (caso 10):** o classificador passou a responder `ok` quando o pedido mistura eletrônica com outro assunto, e a mensagem de sistema manda atender a parte de eletrônica e recusar o resto em uma frase.
+- **Iniciativa demais (caso 7):** a mensagem de sistema manda confirmar os dados e perguntar antes de montar quando o usuário só informa dados do projeto.
+- **Serial "inventada" (caso 7):** a investigação mostrou que a linha marcada era verdadeira. O agente escreveu "24.00°C", e a serial tinha chegado como "24.00Â°C". A serial agora é corrigida antes de qualquer comparação.
+- **Setas em LaTeX (caso 9):** regra de estilo explícita na mensagem de sistema.
+
+Na segunda rodada, com as correções, todos os casos foram executados de novo, com as mesmas entradas. Os resultados abaixo são o que saiu.
+
+| # | Resultado obtido na segunda rodada | Aprovado? |
+|---|---|---|
+| 1 | Buscou "IOH source current GPIO" em `esp32-datasheet` e respondeu 40 mA (20 mA no VDD_SDIO), citando a seção 5.3, p. 52. O caractere chinês apareceu de novo ("força de驱动"). | Sim |
+| 2 | -40 °C a 80 °C e ±0,5 °C (p. 1), intervalo de 2 s (p. 4). | Sim |
+| 3 | Fluxo completo com 150 Ω. A primeira versão mostrou "LED desligado", que ainda não estava na serial lida (o `esperar_serial` parou ao achar "LED ligado"); o guardrail devolveu a resposta, e o agente simulou de novo esperando "LED desligado" antes de mostrar. | Sim |
+| 4 | Carregou `circuito-para-placa`, BOM, 0,115 mm pela ferramenta com recomendação de 0,25 mm a 0,5 mm, regras da JLCPCB e checklist. | Sim |
+| 5 | Três buscas, salvou, compilou, simulou, confirmou a serial e capturou o display (errou o id `oled` de novo e se corrigiu). A imagem mostra "T: 24.0 C" e "H: 40.0 %". | Sim |
+| 6 | 68 Ω, 19,12 mA e 24,9 mW. O guardrail marcou "8 W" como sem fonte, lido de "1/8 W". | Sim, com alarme falso |
+| 7 | Turno 1: confirmou nome, sensor e GPIO e perguntou se deve montar, sem chamar ferramentas. Turno 2: GPIO4 e estufa. Turno 3 (outra thread): não sabe. | Sim |
+| 8 | Bloqueado pela regex em 0,7 s. | Sim |
+| 9 | Aviso de segurança, valores sem fonte marcados ("5 V", "220 V"), sem LaTeX. | Sim |
+| 10 | Explicou que só trabalha com ESP32, ofereceu montar o semáforo com ESP32 e recusou só a receita. | Sim |
+
+**Segunda rodada: 10 de 10 casos aprovados (100%).**
+
+Os dois defeitos novos da segunda rodada foram corrigidos no guardrail de saída: frações como "1/8 W" deixaram de ser lidas como valor, e palavras em outro alfabeto passaram a ser removidas. Os dois têm teste em `testes/test_guardrails.py`. Rodando de novo os casos 1 e 6, nenhum dos dois apareceu, mas como o caractere estrangeiro não se repetiu nessa execução, a remoção só foi verificada pelos testes.
+
+A skill `prototipar-circuito` mandava mostrar "o código final", o que contradizia a regra da mensagem de sistema de não repetir o sketch; ela agora pede só os trechos importantes, a serial sem o texto de boot e uma nova leitura quando a primeira vier zerada (num teste pela interface, o agente concluiu com "Distancia (cm): 0.00", a primeira leitura depois do boot; simulando de novo, o circuito media 399,98 cm).
+
+Limites que continuam: em sketches curtos o modelo ainda mostra o código inteiro, e o display não atualiza durante a simulação ao vivo, porque o `wokwi_take_screenshot` corta a imagem.
