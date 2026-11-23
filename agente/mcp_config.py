@@ -62,9 +62,17 @@ def configuracao_servidores():
 
 def texto_ferramenta(resultado):
     """Conteúdo de uma ferramenta MCP: string ou lista de blocos de texto."""
-    if isinstance(resultado, str):
-        return resultado
-    return "\n".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in resultado)
+    if not isinstance(resultado, str):
+        resultado = "\n".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in resultado)
+    return corrigir_acentos(resultado)
+
+
+def corrigir_acentos(texto):
+    """A serial do Wokwi chega com UTF-8 lido como Latin-1 ("Â°C" no lugar de "°C")."""
+    try:
+        return texto.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return texto
 
 
 def criar_esperar_serial(ler_serial, intervalo=1.0):

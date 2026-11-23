@@ -11,6 +11,7 @@ import os
 import re
 from pathlib import Path
 
+from agente.mcp_config import corrigir_acentos
 from interface.painel import novidades
 
 RAIZ = Path(__file__).resolve().parent.parent
@@ -111,7 +112,7 @@ def registrar(conversa, nome, args, resultado, erro=False):
         etapas["simulado"] = True
         return True
     if nome in ("esperar_serial", "wokwi_read_serial") and resultado:
-        conversa["serial"] = serial_sem_boot(resultado)
+        conversa["serial"] = serial_sem_boot(corrigir_acentos(resultado))
         if nome == "esperar_serial":
             etapas["serial_ok"] = "encontrado na serial" in resultado
         return True

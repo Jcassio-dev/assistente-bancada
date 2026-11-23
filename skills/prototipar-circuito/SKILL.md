@@ -103,7 +103,7 @@ Chame `esperar_serial(texto=..., segundos=...)` com um texto que o sketch escrev
 
 Mostre:
 - a lista de ligações em texto (ex.: "DHT22 VCC no 3V3, SDA no GPIO15, GND no GND.1");
-- o código final;
-- o trecho da serial que comprova o funcionamento, **copiado do resultado da ferramenta**. Nunca escreva uma saída da serial que não veio dela;
+- só os trechos importantes do código (ex.: a lógica de leitura e a condição do alerta), em poucas linhas. O código completo já aparece na aba Código da bancada; não repita o sketch inteiro;
+- o trecho da serial que comprova o funcionamento, **copiado do resultado da ferramenta**, sem o texto de boot do ESP32 (as linhas até `entry 0x...`). Se a primeira leitura vier zerada ou estranha, espere a próxima com `esperar_serial` antes de concluir. Nunca escreva uma saída da serial que não veio dela;
 - os documentos e páginas consultados para cada valor elétrico usado;
 - a pasta do projeto, para abrir no Wokwi.

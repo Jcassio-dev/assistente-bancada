@@ -179,3 +179,31 @@ def test_acoes_afirmadas_sem_ferramenta():
     assert acoes_sem_ferramenta("O LED está ligado ao GPIO2 por um resistor de 220 Ω.", set()) == []
     assert acoes_sem_ferramenta("Para ligar, conecte o VCC no 3V3.", set()) == []
     assert acoes_sem_ferramenta("Não simulei o circuito e o projeto ainda não foi salvo.", set()) == []
+
+
+def test_valor_arredondado_confere_com_a_ferramenta():
+    from agente.guardrails import valores_sem_fonte
+
+    fontes = '{"corrente_real_ma": 8.67, "resistor_comercial_ohms": 150.0}'
+    assert valores_sem_fonte("A corrente fica em 8,7 mA com 150 Ω.", fontes) == []
+    assert valores_sem_fonte("A corrente fica em 9 mA.", fontes) == ["9 mA"]
+
+
+def test_serial_com_grau_lida_como_latin1():
+    from agente.guardrails import linhas_serial_sem_fonte
+
+    resposta = "Saída da serial:\n```text\nTemperatura: 24.00°C\n```"
+    assert linhas_serial_sem_fonte(resposta, "Temperatura: 24.00Â°C\n") == []
+
+
+def test_fracao_nao_vira_valor():
+    from agente.guardrails import valores_tecnicos
+
+    assert valores_tecnicos("use um resistor de 1/8 W ou 1/4 W") == []
+
+
+def test_remove_palavras_em_outro_alfabeto():
+    from agente.guardrails import revisar_saida
+
+    texto, acoes = revisar_saida("com a força de驱动 no máximo", "", False, ambiente={})
+    assert texto == "com a força de no máximo" and acoes == ["palavras em outro alfabeto removidas"]
