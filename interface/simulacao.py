@@ -1,12 +1,7 @@
-"""Simulação ao vivo na bancada: o usuário liga, mexe nos controles e vê a serial e os LEDs.
+"""Simulação ao vivo.
 
-O Streamlit reexecuta o script a cada interação, mas a simulação precisa continuar
-entre uma reexecução e outra. Por isso cada simulação roda numa thread com o seu
-próprio laço asyncio, que mantém aberta uma sessão MCP com o `wokwi-cli` e recebe
-comandos por uma fila. A interface só lê o estado (serial, pinos) e envia comandos.
-
-Para não gastar minutos do Wokwi à toa, a simulação desliga sozinha depois de
-LIMITE_SEGUNDOS ligada ou de OCIOSA_SEGUNDOS sem a página perguntar pelo estado.
+Roda numa thread com laço asyncio próprio para sobreviver às reexecuções do
+Streamlit. Desliga sozinha depois de LIMITE_SEGUNDOS ou OCIOSA_SEGUNDOS sem uso.
 """
 
 import asyncio
@@ -36,7 +31,6 @@ BOTOES = {"wokwi-pushbutton"}  # controle "pressed": 1 aperta, 0 solta
 
 
 def controles_do_diagrama(diagrama):
-    """[(id da peça, tipo, [controles])] das peças que têm controle na simulação."""
     return [(p["id"], p["type"], CONTROLES.get(p["type"], []))
             for p in (diagrama or {}).get("parts", [])
             if p["type"] in CONTROLES or p["type"] in BOTOES]
@@ -47,7 +41,6 @@ def leds_do_diagrama(diagrama):
 
 
 def _pino_ligado(texto):
-    """'Pin A on led1: true (undefinedV)' -> True."""
     return ": true" in texto
 
 
@@ -56,7 +49,7 @@ class SimulacaoAoVivo:
         self.projeto, self.pasta, self.leds = projeto, str(pasta), leds
         self.comandos = queue.Queue()
         self.serial = ""
-        self.acesos = {}  # id do LED -> bool
+        self.acesos = {}
         self.erro = None
         self.ativa = False
         self.iniciando = True
@@ -65,7 +58,6 @@ class SimulacaoAoVivo:
         self.thread = threading.Thread(target=lambda: asyncio.run(self._rodar()), daemon=True)
         self.thread.start()
 
-    # ---- chamados pela interface ----
 
     def estado(self):
         self.ultima_consulta = time.time()
@@ -82,7 +74,6 @@ class SimulacaoAoVivo:
     def parar(self):
         self.comandos.put(("parar",))
 
-    # ---- thread da simulação ----
 
     async def _rodar(self):
         cliente = MultiServerMCPClient({"wokwi": configuracao_servidores()["wokwi"]})
@@ -96,7 +87,7 @@ class SimulacaoAoVivo:
                         self.erro = f"Simulação desligada depois de {LIMITE_SEGUNDOS // 60} minutos."
                         break
                     if time.time() - self.ultima_consulta > OCIOSA_SEGUNDOS:
-                        break  # a página foi fechada
+                        break
                     if await self._atender_comandos(f):
                         break
                     novo = texto_ferramenta(await f["wokwi_read_serial"].ainvoke({"clear": True}))
@@ -108,13 +99,12 @@ class SimulacaoAoVivo:
                         self.acesos[led] = _pino_ligado(anodo)
                     await asyncio.sleep(INTERVALO)
                 await f["wokwi_stop_simulation"].ainvoke({})
-        except Exception as e:  # token ausente, projeto não compilado, wokwi-cli fora do ar
+        except Exception as e:
             self.erro = f"Não foi possível simular: {e}"
         finally:
             self.ativa = self.iniciando = False
 
     async def _atender_comandos(self, f):
-        """Executa os comandos pendentes. Devolve True se pediram para parar."""
         while not self.comandos.empty():
             comando = self.comandos.get_nowait()
             if comando[0] == "parar":

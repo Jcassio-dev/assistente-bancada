@@ -1,14 +1,4 @@
-"""Extrai o texto dos documentos baixados, divide em trechos e indexa no Chroma.
-
-Uso: python scripts/indexar.py
-Lê fontes.yaml e dados/pdfs/; recria a coleção em dados/indice/.
-
-- PDFs: só os capítulos listados em fontes.yaml (procurados nos marcadores).
-  Tabelas são extraídas à parte e viram uma linha por registro, com o nome da
-  coluna junto de cada valor ("Parameter: ... | Min: ... | Max: ..."), para o
-  trecho não perder o cabeçalho.
-- HTML: só o conteúdo principal da página, com títulos (h1-h4) como seção.
-"""
+"""Uso: python scripts/indexar.py"""
 
 import re
 import sys
@@ -38,21 +28,16 @@ def normalizar(texto):
 
 
 def sem_repeticoes(texto):
-    """Alguns PDFs (DHT22) simulam negrito desenhando o texto 4 vezes:
-    'Power Power Power Power' e '4.4.4.4.'. Três ou mais cópias seguidas viram uma."""
+    """O PDF do DHT22 desenha cada palavra 4 vezes para simular negrito."""
     texto = re.sub(r"(?<!\S)(\S+)(?:\s+\1){2,}(?!\S)", r"\1", texto)
     return re.sub(r"(?<!\S)(\S{1,3}?)\1{2,}(?!\S)", r"\1", texto)
 
 
 def sem_numeracao(titulo):
-    """'5.3 DC Characteristics' -> 'DC Characteristics'."""
     return re.sub(r"^(\d+(\.\d+)*|[IVX]+)\s+", "", titulo).strip()
 
 
-# ---------- PDF ----------
-
 def paginas_dos_capitulos(doc, capitulos):
-    """Conjunto de páginas (0-based) dos capítulos pedidos, pelos marcadores do PDF."""
     toc = doc.get_toc()
     paginas, faltando = set(), []
     for nome in capitulos:
@@ -63,7 +48,7 @@ def paginas_dos_capitulos(doc, capitulos):
             fim = doc.page_count
             for nivel2, _, pagina2 in toc[i + 1:]:
                 if nivel2 <= nivel:
-                    fim = pagina2  # inclui a página onde começa o próximo capítulo
+                    fim = pagina2
                     break
             paginas.update(range(pagina - 1, fim))
             achou = True
@@ -77,9 +62,7 @@ def paginas_dos_capitulos(doc, capitulos):
 
 
 def celulas(pagina, tabela):
-    """Texto de cada célula. O extract() do pymupdf embaralha números em alguns
-    datasheets ('–0.3' vira '03 – .'), então lemos cada célula com o extrator
-    de texto normal, recortado pela área da célula."""
+    """O extract() do pymupdf embaralha números ('–0.3' vira '03 – .'): lê cada célula recortada."""
     return [
         [sem_repeticoes(normalizar(pagina.get_text("text", clip=pymupdf.Rect(c)))) if c else "" for c in linha.cells]
         for linha in tabela.rows
@@ -108,7 +91,6 @@ def tabela_para_linhas(linhas):
 
 
 def extrair_pdf(caminho, capitulos):
-    """Lista de (pagina, secao, texto) na ordem de leitura."""
     doc = pymupdf.open(caminho)
     paginas = paginas_dos_capitulos(doc, capitulos) if capitulos else range(doc.page_count)
     marcadores = {}
@@ -127,7 +109,7 @@ def extrair_pdf(caminho, capitulos):
 
         tabelas = list(pagina.find_tables())
         caixas = [pymupdf.Rect(t.bbox) for t in tabelas]
-        elementos = []  # (y, texto)
+        elementos = []
         for t, caixa in zip(tabelas, caixas):
             linhas = tabela_para_linhas(celulas(pagina, t))
             if linhas:
@@ -152,8 +134,6 @@ def extrair_pdf(caminho, capitulos):
             secao = titulos[-1]
     return itens
 
-
-# ---------- HTML ----------
 
 def extrair_html(caminho):
     sopa = BeautifulSoup(caminho.read_text(encoding="utf-8", errors="ignore"), "html.parser")
@@ -204,14 +184,7 @@ def _linhas_tabela_html(linhas):
     return saida or [" | ".join(cabecalho)]
 
 
-# ---------- trechos ----------
-
 def dividir(itens):
-    """Junta itens da mesma seção em trechos de ~TAMANHO_TRECHO, com sobreposição.
-
-    Cada trecho guarda a página onde começa. Um item maior que o limite (tabela
-    grande) é quebrado por linha.
-    """
     minimo = 200  # trecho menor que isso (ex.: só o título) é juntado ao seguinte
     unidades = []
     for pagina, secao, texto in itens:

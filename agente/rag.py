@@ -1,8 +1,5 @@
-"""RAG: embeddings, acesso ao índice Chroma e ferramenta buscar_documentos.
-
-O modelo multilingual-e5-small exige prefixos: "passage: " nos trechos
-indexados e "query: " nas consultas. Os dois lados passam por este módulo
-(embutir_trechos e embutir_consulta), então o prefixo nunca fica de fora.
+"""O multilingual-e5-small exige "passage: " nos trechos e "query: " nas consultas:
+os dois passam só por embutir_trechos e embutir_consulta.
 """
 
 import math
@@ -36,7 +33,6 @@ def modelo_embeddings():
             dim=384,
             model_file="onnx/model.onnx",
         )
-    # Na primeira execução baixa o modelo (~470 MB) para dados/modelos/.
     return TextEmbedding(MODELO, cache_dir=str(PASTA_MODELOS))
 
 
@@ -53,8 +49,6 @@ def colecao():
     cliente = chromadb.PersistentClient(path=str(PASTA_INDICE))
     return cliente.get_collection(COLECAO)
 
-
-# ---------- BM25 (busca por palavra-chave, para termos exatos como GPIO34, ADC2) ----------
 
 def tokenizar(texto):
     return re.findall(r"[a-z0-9_]+", texto.lower())
@@ -94,17 +88,8 @@ def buscar_bm25(consulta, documento=None, k=20, k1=1.5, b=0.75):
     return [ind["ids"][i] for _, i in pontos[:k]]
 
 
-# ---------- busca ----------
-
 def buscar(consulta, documento=None, k=5, modo="hibrido"):
-    """Devolve até k trechos [{id, texto, documento, titulo, pagina, secao, url, pontuacao}].
-
-    modo="denso": só embeddings; pontuação = similaridade de cosseno (0 a 1).
-    modo="hibrido": intercala os resultados dos embeddings e do BM25 (denso 1,
-    BM25 1, denso 2, ...). Testamos Reciprocal Rank Fusion antes, mas ele
-    perdia o 1º lugar do BM25 em perguntas de termo exato (GPIO12/MTDI).
-    A pontuação continua sendo a similaridade de cosseno do trecho.
-    """
+    """modo="hibrido" intercala embeddings e BM25 (o RRF perdia o 1º lugar do BM25 em termos exatos)."""
     filtro = {"documento": documento} if documento else None
     candidatos = k if modo == "denso" else 2 * k
     r = colecao().query(
@@ -132,7 +117,7 @@ def buscar(consulta, documento=None, k=5, modo="hibrido"):
         extra = colecao().get(ids=faltando, include=["documents", "metadatas", "embeddings"])
         q = embutir_consulta(consulta)
         for id_, doc, meta, emb in zip(extra["ids"], extra["documents"], extra["metadatas"], extra["embeddings"]):
-            cos = float(sum(a * b for a, b in zip(q, emb)))  # vetores já normalizados; float: numpy não vai para o checkpointer
+            cos = float(sum(a * b for a, b in zip(q, emb)))
             trechos[id_] = {"id": id_, "texto": doc, **meta, "pontuacao": round(cos, 3)}
     return [trechos[i] for i in melhores]
 

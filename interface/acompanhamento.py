@@ -1,11 +1,3 @@
-"""Acompanha o trabalho do agente para a interface.
-
-rotulo(): descreve em português o que uma chamada de ferramenta está fazendo.
-registrar(): atualiza a conversa (projeto, etapas, serial, destaques) a partir do
-resultado de uma ferramenta. É chamada durante a resposta, para a bancada se
-redesenhar assim que o projeto é salvo.
-"""
-
 import json
 import os
 import re
@@ -31,7 +23,6 @@ DOCUMENTOS = {
 
 
 def rotulo(nome, args):
-    """Frase curta para o passo, ex.: 'Consultando o datasheet do DHT22'."""
     args = args or {}
     if nome == "buscar_documentos":
         doc = args.get("documento")
@@ -67,7 +58,7 @@ def ler_diagrama(projeto):
 
 
 def serial_sem_boot(texto):
-    """Só o que o sketch escreveu: tira o aviso da ferramenta e o boot do ESP32 (até 'entry 0x...')."""
+    """Tira o boot do ESP32 (até 'entry 0x...')."""
     texto = re.sub(r'^Texto ".*?" (encontrado|NÃO apareceu)[^\n]*\n+', "", texto)
     texto = re.sub(r"^Saída até agora:\n", "", texto, flags=re.M)
     return re.split(r"^entry 0x[0-9a-f]+\s*$", texto, flags=re.M)[-1].strip()
@@ -81,7 +72,7 @@ def _json(texto):
 
 
 def registrar(conversa, nome, args, resultado, erro=False):
-    """Atualiza a conversa com o resultado de uma ferramenta. Devolve True se a bancada mudou."""
+    """Devolve True se a bancada mudou."""
     args = args or {}
     etapas = conversa.setdefault("etapas", {})
     if nome == "salvar_projeto":
@@ -122,7 +113,6 @@ def registrar(conversa, nome, args, resultado, erro=False):
 
 
 def etapas_visiveis(etapas):
-    """[(texto, situação)] para o cabeçalho da bancada; situação: ok, erro ou neutra."""
     if not etapas:
         return []
     itens = []
@@ -139,11 +129,7 @@ def etapas_visiveis(etapas):
 
 
 def mover_peca(projeto, id, left, top, rotate=0):
-    """Grava no diagram.json a posição (e a rotação) de uma peça arrastada na bancada.
-
-    Só mudam top, left e rotate: as ligações continuam as mesmas, então não precisa
-    validar de novo. Devolve False se a peça ou o projeto não existirem.
-    """
+    """Só mudam top, left e rotate, então não precisa validar de novo."""
     arquivo = PASTA_PROJETOS / projeto / "diagram.json" if projeto else None
     if not arquivo or not arquivo.exists():
         return False

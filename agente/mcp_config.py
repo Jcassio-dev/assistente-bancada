@@ -1,9 +1,3 @@
-"""Conexão com os servidores MCP: bancada (nosso) e wokwi (oficial do Wokwi).
-
-As chaves vêm do .env (load_dotenv). Os dois servidores rodam via stdio como
-processos filhos e herdam o ambiente deste processo.
-"""
-
 import asyncio
 import os
 import shutil
@@ -20,7 +14,6 @@ RAIZ = Path(__file__).resolve().parent.parent
 
 
 def caminho_wokwi_cli():
-    """WOKWI_CLI, depois o PATH, depois a pasta padrão do instalador."""
     candidato = os.environ.get("WOKWI_CLI") or shutil.which("wokwi-cli") or str(Path.home() / ".wokwi/bin/wokwi-cli")
     if not Path(candidato).exists():
         raise RuntimeError(
@@ -43,7 +36,7 @@ def configuracao_servidores():
             "WOKWI_CLI_TOKEN não definido. Gere um token em https://wokwi.com/dashboard/ci "
             "e coloque no .env (veja o .env.example)."
         )
-    ambiente = dict(os.environ)  # token, PATH, ARDUINO_CLI, PASTA_PROJETOS
+    ambiente = dict(os.environ)
     return {
         "bancada": {
             "transport": "stdio",
@@ -61,14 +54,13 @@ def configuracao_servidores():
 
 
 def texto_ferramenta(resultado):
-    """Conteúdo de uma ferramenta MCP: string ou lista de blocos de texto."""
     if not isinstance(resultado, str):
         resultado = "\n".join(b.get("text", "") if isinstance(b, dict) else str(b) for b in resultado)
     return corrigir_acentos(resultado)
 
 
 def corrigir_acentos(texto):
-    """A serial do Wokwi chega com UTF-8 lido como Latin-1 ("Â°C" no lugar de "°C")."""
+    """A serial do Wokwi chega com UTF-8 lido como Latin-1 ("Â°C")."""
     try:
         return texto.encode("latin-1").decode("utf-8")
     except (UnicodeEncodeError, UnicodeDecodeError):
@@ -76,12 +68,7 @@ def corrigir_acentos(texto):
 
 
 def criar_esperar_serial(ler_serial, intervalo=1.0):
-    """Ferramenta que lê a serial do Wokwi até aparecer um texto.
-
-    O wokwi_read_serial devolve só o que já chegou. Chamado em sequência pelo
-    modelo, ele lia a serial antes da primeira leitura do sensor (o sketch espera
-    alguns segundos), e o modelo chegou a descrever uma saída que não veio.
-    """
+    """O wokwi_read_serial só devolve o que já chegou: lido logo após o boot vinha vazio."""
 
     async def esperar_serial(texto: str, segundos: int = 20) -> str:
         """Espera o texto aparecer na serial da simulação em andamento e devolve a saída.
@@ -104,14 +91,10 @@ def criar_esperar_serial(ler_serial, intervalo=1.0):
 
 @asynccontextmanager
 async def ferramentas_mcp():
-    """Abre uma sessão por servidor e devolve as ferramentas (7 do bancada, 11 do Wokwi e esperar_serial).
+    """Uma sessão por servidor, aberta durante a resposta inteira.
 
-    Uso: async with ferramentas_mcp() as ferramentas: ...
-
-    O cliente.get_tools() sem sessão abre um processo novo a cada chamada de
-    ferramenta: a simulação iniciada por wokwi_start_simulation morreria antes
-    do wokwi_read_serial. Com a sessão aberta, o mesmo wokwi-cli atende todas as
-    chamadas até o fim do bloco (uma resposta do agente).
+    Sem sessão, cada chamada abre um wokwi-cli novo e a simulação morre antes do
+    wokwi_read_serial.
     """
     cliente = MultiServerMCPClient(configuracao_servidores())
     async with AsyncExitStack() as pilha:

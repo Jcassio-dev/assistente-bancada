@@ -1,9 +1,4 @@
-"""Pacote para continuar o projeto no wokwi.com.
-
-O Wokwi não tem como abrir um projeto a partir de um link ou arquivo nosso, então
-a bancada entrega os três arquivos que um projeto ESP32 do site usa, para colar
-num projeto novo: sketch.ino, diagram.json e libraries.txt.
-"""
+"""Pacote para colar num projeto novo do wokwi.com, que não abre projetos por link."""
 
 import io
 import re
@@ -12,7 +7,6 @@ from pathlib import Path
 
 NOVO_PROJETO_ESP32 = "https://wokwi.com/projects/new/esp32"
 
-# Cabeçalho incluído no sketch -> nome da biblioteca no gerenciador do Arduino/Wokwi.
 BIBLIOTECAS = {
     "DHT.h": "DHT sensor library",
     "DHT_U.h": "DHT sensor library",
@@ -35,7 +29,6 @@ def bibliotecas_do_sketch(codigo):
 
 
 def pacote_wokwi(pasta):
-    """(nome do arquivo .zip, bytes) com sketch.ino, diagram.json e libraries.txt."""
     pasta = Path(pasta)
     sketch = next(pasta.glob("*.ino"), None)
     codigo = sketch.read_text(encoding="utf-8") if sketch else ""

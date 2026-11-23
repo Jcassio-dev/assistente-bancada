@@ -1,10 +1,4 @@
-"""Conversas da interface: cada conversa é uma bancada, com seu projeto e seu histórico.
-
-A memória do agente (mensagens, ferramentas) fica no checkpointer SQLite, com o id
-da conversa como thread_id. Aqui fica só o que a tela precisa: título, projeto,
-etapas do protótipo e o histórico já formatado com os bastidores de cada resposta.
-Tudo em dados/conversas/ (fora do git).
-"""
+"""Dados da tela de cada conversa. A memória do agente fica no checkpointer."""
 
 import json
 import re
@@ -47,7 +41,6 @@ def salvar(conversa):
 
 
 def carregar(id_):
-    """A conversa salva, ou None se não existir (ou o id for inválido)."""
     try:
         arquivo = caminho(id_)
     except ValueError:
@@ -56,7 +49,6 @@ def carregar(id_):
 
 
 def listar():
-    """Conversas salvas, da mais recente para a mais antiga (só os campos da barra lateral)."""
     itens = []
     for arquivo in PASTA.glob("*.json"):
         try:
@@ -68,7 +60,6 @@ def listar():
 
 
 def quando(instante, agora=None):
-    """'agora', 'há 5 min', 'há 3 h', 'ontem' ou 'há 4 dias'."""
     segundos = max(0, (agora or time.time()) - (instante or 0))
     if segundos < 60:
         return "agora"
@@ -88,6 +79,5 @@ def apagar(id_):
 
 
 def titulo_do_pedido(texto, limite=42):
-    """Título curto a partir do primeiro pedido, enquanto a conversa não tem projeto."""
     texto = " ".join(texto.split())
     return texto if len(texto) <= limite else texto[: limite - 3].rstrip() + "..."

@@ -58,7 +58,7 @@ def test_agente_chama_ferramenta_e_guarda_trechos():
     assert tipos == ["human", "ai", "tool", "ai"]
     assert estado["trechos_recuperados"] == [{"documento": "esp32-datasheet", "pagina": 52, "texto": "IOH 40 mA"}]
     assert estado["bloqueado_por"] is None
-    assert modelo.recebidas[0][0].content == "sistema"  # mensagem de sistema vai na frente
+    assert modelo.recebidas[0][0].content == "sistema"
 
 
 def test_trechos_zerados_a_cada_pergunta():
@@ -99,7 +99,6 @@ def test_memoria_volta_entre_grafos_com_o_mesmo_checkpointer():
 def test_pedido_bloqueado_vai_para_recusa_sem_chamar_o_modelo(monkeypatch):
     modelo = ModeloRoteiro(roteiro=[])
     grafo = montar_grafo([buscar_documentos], InMemorySaver(), modelo, mensagem="s", classificador=classificador_ok())
-    # simula o guardrail de entrada barrando o pedido
     grafo.update_state(configuracao("a"), {"bloqueado_por": "injection"}, as_node="guardrail_entrada")
     estado = asyncio.run(grafo.ainvoke(None, configuracao("a")))
     assert estado["messages"][-1].type == "ai"

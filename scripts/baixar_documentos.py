@@ -1,8 +1,4 @@
-"""Baixa os documentos listados em fontes.yaml para dados/pdfs/.
-
-Uso: python scripts/baixar_documentos.py [--forcar]
-Arquivos já baixados são pulados, a menos que se passe --forcar.
-"""
+"""Uso: python scripts/baixar_documentos.py [--forcar]"""
 
 import sys
 from pathlib import Path

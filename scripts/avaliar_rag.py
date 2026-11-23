@@ -1,11 +1,4 @@
-"""Avalia a recuperação do RAG com perguntas reais.
-
-Uso: python scripts/avaliar_rag.py [--modo denso|hibrido|ambos] [--k 5] [--resumo]
-
-Para cada pergunta mostra os k trechos recuperados (documento, página, seção,
-pontuação) e marca com * os relevantes: trecho do documento esperado que
-contém o fato que responde a pergunta (expressão regular em "fato").
-"""
+"""Uso: python scripts/avaliar_rag.py [--modo denso|hibrido|ambos] [--k 5] [--resumo]"""
 
 import argparse
 import re
@@ -76,7 +69,6 @@ def relevante(trecho, p):
 
 
 def relevantes_no_indice(p):
-    """Quantos trechos do índice inteiro respondem a pergunta (0 = falta no documento, não na busca)."""
     todos = colecao().get(include=["documents", "metadatas"])
     return sum(relevante({"texto": d, **m}, p) for d, m in zip(todos["documents"], todos["metadatas"]))
 

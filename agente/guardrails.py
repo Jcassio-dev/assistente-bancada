@@ -1,20 +1,9 @@
-"""Guardrails de entrada e de saída (usados pelos nós do grafo em agente/grafo.py).
-
-Entrada: regex para prompt injection óbvio + uma chamada curta ao modelo que
-classifica o pedido em ok, fora_do_escopo, injection ou rede_eletrica.
-
-Saída: remove tokens e chaves, avisa sobre valores elétricos sem fonte e
-acrescenta o aviso de segurança quando o pedido envolve a rede elétrica.
-"""
-
 import os
 import re
 
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from agente.mcp_config import corrigir_acentos
-
-# ---------- entrada ----------
 
 PADROES_INJECTION = [
     r"ignor\w*\s+(\w+\s+){0,3}(instru[çc][õo]es|regras|ordens|orienta[çc][õo]es)",
@@ -31,7 +20,6 @@ PADROES_INJECTION = [
 ]
 REGEX_INJECTION = [re.compile(p, re.I) for p in PADROES_INJECTION]
 
-# Rede elétrica: o pedido é atendido, mas a resposta leva aviso de segurança.
 REGEX_REDE_ELETRICA = re.compile(
     r"\b(1[12]7|2[23]0|110)\s?(V|volts?|VAC|Vac)\b|\btomada\b|rede\s+el[ée]trica|\bmains\b|\bl[âa]mpada\b.*\brel[ée]\b|"
     r"\brel[ée]\b.*\bl[âa]mpada\b|corrente\s+alternada|\bAC\s+(230|220|127|110)",
@@ -56,7 +44,6 @@ Categoria:"""
 
 
 def detectar_injection(texto):
-    """Primeiro padrão de injection encontrado, ou None."""
     for regex in REGEX_INJECTION:
         m = regex.search(texto)
         if m:
@@ -69,14 +56,13 @@ def envolve_rede_eletrica(texto):
 
 
 def interpretar_categoria(resposta):
-    """Primeira categoria válida na resposta do modelo; 'ok' se não vier nenhuma (não barra à toa)."""
+    """Na dúvida devolve 'ok', para não barrar à toa."""
     texto = resposta.lower()
     achadas = [(texto.find(c), c) for c in CATEGORIAS if c in texto]
     return min(achadas)[1] if achadas else "ok"
 
 
 async def classificar(modelo, pedido, anterior=None):
-    """anterior: pedido anterior do usuário, para entender continuações ("e com 220 V?")."""
     contexto = f'Pedido anterior do usuário (só contexto):\n\"\"\"{anterior[:1000]}\"\"\"\n\n' if anterior else ""
     resposta = await modelo.ainvoke([
         SystemMessage("Você é um classificador. Responda só com a categoria."),
@@ -86,7 +72,6 @@ async def classificar(modelo, pedido, anterior=None):
 
 
 async def avaliar_entrada(modelo, pedido, anterior=None):
-    """{bloqueado_por, alerta_seguranca, motivo} para o pedido do usuário."""
     padrao = detectar_injection(pedido)
     if padrao:
         return {"bloqueado_por": "injection", "alerta_seguranca": False, "motivo": f"regex: {padrao!r}"}
@@ -98,28 +83,24 @@ async def avaliar_entrada(modelo, pedido, anterior=None):
     return {"bloqueado_por": None, "alerta_seguranca": alerta, "motivo": motivo}
 
 
-# ---------- saída ----------
-
 REMOVIDO = "[removido]"
 PADROES_SEGREDO = [
-    r"\bwok_[A-Za-z0-9_-]{10,}",  # token do Wokwi CI
-    r"\bsk-[A-Za-z0-9_-]{16,}",  # chaves no formato sk-... (vários provedores)
-    r"\bAIza[0-9A-Za-z_-]{30,}",  # chaves de API do Google
-    r"\bgh[pousr]_[A-Za-z0-9]{20,}",  # tokens do GitHub
-    r"\b(xox[abp]-[A-Za-z0-9-]{10,})",  # tokens do Slack
+    r"\bwok_[A-Za-z0-9_-]{10,}",
+    r"\bsk-[A-Za-z0-9_-]{16,}",
+    r"\bAIza[0-9A-Za-z_-]{30,}",
+    r"\bgh[pousr]_[A-Za-z0-9]{20,}",
+    r"\b(xox[abp]-[A-Za-z0-9-]{10,})",
 ]
 REGEX_SEGREDO = [re.compile(p) for p in PADROES_SEGREDO]
 SUFIXOS_SEGREDO = ("_TOKEN", "_KEY", "_SECRET", "_PASSWORD")
 
 
 def valores_secretos(ambiente=None):
-    """Valores das variáveis de ambiente que parecem segredos (ex.: WOKWI_CLI_TOKEN, OPENAI_API_KEY)."""
     ambiente = os.environ if ambiente is None else ambiente
     return [v for k, v in ambiente.items() if k.upper().endswith(SUFIXOS_SEGREDO) and len(v) >= 8]
 
 
 def remover_segredos(texto, ambiente=None):
-    """(texto sem segredos, quantidade removida)."""
     total = 0
     for valor in valores_secretos(ambiente):
         if valor in texto:
@@ -136,7 +117,6 @@ def remover_segredos(texto, ambiente=None):
 REGEX_VALOR = re.compile(
     r"(?<![\w.,/])(\d+(?:[.,]\d+)?)\s?(mA|µA|uA|nA|A|mV|kV|V|kΩ|MΩ|Ω|k?ohms?|mm|mils?|MHz|kHz|Hz|mW|W|°C|ºC|C|%)(?![\w])"
 )
-# Pino citado como GPIO12, IO12 ou GPIO 12.
 REGEX_GPIO = re.compile(r"\bGPIO\s?(\d{1,2})\b", re.I)
 
 
@@ -145,14 +125,12 @@ def _decimal_com_ponto(texto):
 
 
 def valores_tecnicos(texto):
-    """Valores elétricos e pinos citados no texto, como aparecem ('3,3 V', 'GPIO12')."""
     valores = [m.group(0) for m in REGEX_VALOR.finditer(texto)]
     valores += [m.group(0) for m in REGEX_GPIO.finditer(texto)]
-    return list(dict.fromkeys(valores))  # sem repetidos, na ordem
+    return list(dict.fromkeys(valores))
 
 
 def confirmado(valor, fontes):
-    """O número do valor aparece nas fontes? (GPIO: como GPIO<n>, IO<n> ou esp:<n>)."""
     fontes = _decimal_com_ponto(fontes)
     gpio = REGEX_GPIO.fullmatch(valor)
     if gpio:
@@ -190,7 +168,6 @@ REGEX_OUTRO_ALFABETO = re.compile(r"[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\uff
 
 
 def revisar_saida(resposta, fontes, alerta_seguranca, ambiente=None):
-    """(resposta revisada, lista do que o guardrail fez)."""
     acoes = []
     resposta, estrangeiros = REGEX_OUTRO_ALFABETO.subn("", resposta)
     if estrangeiros:
@@ -208,8 +185,6 @@ def revisar_saida(resposta, fontes, alerta_seguranca, ambiente=None):
     return resposta, acoes
 
 
-# ---------- saída da serial inventada ----------
-
 FERRAMENTAS_SERIAL = ("esperar_serial", "wokwi_read_serial")
 LINGUAGENS_SAIDA = {"", "text", "txt", "plaintext", "serial", "console", "log", "output"}
 REGEX_BLOCO = re.compile(r"```([\w+-]*)[ \t]*\n(.*?)```", re.S)
@@ -225,7 +200,6 @@ AVISO_SEM_CONFIRMACAO = (
     "Confira na bancada antes de confiar."
 )
 
-# Afirmações de ação no passado e a ferramenta que precisa ter rodado com sucesso nesta resposta.
 AFIRMACOES_DE_ACAO = {
     "salvar_projeto": re.compile(
         r"\b(foi|foram)\s+(\w+\s+){0,2}?(salv|alterad|trocad|atualizad|adicionad|modificad|corrigid|ajustad|"
@@ -249,12 +223,11 @@ REGEX_NEGACAO = re.compile(r"\b(n[ãa]o|nem|nunca|ainda n[ãa]o)\s+(\w+\s+){0,2}
 
 
 def _afirma(regex, resposta):
-    """A regex aparece sem negação logo antes ("não simulei" não é afirmar que simulou)."""
+    """"não simulei" não conta como afirmar que simulou."""
     return any(not REGEX_NEGACAO.search(resposta[max(0, m.start() - 30):m.start()]) for m in regex.finditer(resposta))
 
 
 def acoes_sem_ferramenta(resposta, ferramentas_ok):
-    """Ações que a resposta afirma ter feito sem a ferramenta correspondente ter rodado com sucesso."""
     return [DESCRICAO_ACAO[f] for f, regex in AFIRMACOES_DE_ACAO.items()
             if f not in ferramentas_ok and _afirma(regex, resposta)]
 
@@ -264,11 +237,7 @@ def _sem_espacos_extras(texto):
 
 
 def linhas_serial_sem_fonte(resposta, saida_real):
-    """Linhas de blocos de 'saída da serial' da resposta que não aparecem na serial real.
-
-    Só confere blocos sem linguagem de programação (```text, ``` ...) com a palavra
-    "serial" no próprio bloco ou logo antes dele. Código (```cpp) não entra.
-    """
+    """Só confere blocos sem linguagem (```text) com "serial" no bloco ou logo antes."""
     real = _sem_espacos_extras(corrigir_acentos(saida_real))
     faltando = []
     for m in REGEX_BLOCO.finditer(resposta):

@@ -1,7 +1,4 @@
-"""Servidor MCP "bancada": ferramentas próprias para prototipar circuitos.
-
-Roda via stdio:  python servidor_bancada/servidor.py
-"""
+"""Servidor MCP bancada (stdio)."""
 
 import json
 import os
@@ -82,7 +79,6 @@ SERIE_E12 = [1.0, 1.2, 1.5, 1.8, 2.2, 2.7, 3.3, 3.9, 4.7, 5.6, 6.8, 8.2]
 
 
 def _e12_acima(valor):
-    """Menor valor comercial da série E12 que seja >= valor (em ohms)."""
     decada = 1.0
     while decada * 10 <= valor:
         decada *= 10
@@ -103,7 +99,6 @@ def _formatar_ohms(valor):
 
 
 def _ler_diagrama(diagram_json):
-    """Converte o texto em dict; devolve (diagrama, mensagem_de_erro)."""
     try:
         diagrama = json.loads(diagram_json)
     except json.JSONDecodeError as e:
@@ -121,7 +116,6 @@ def _placa_do_diagrama(diagrama):
 
 
 class _Redes:
-    """Agrupa pinos ligados entre si (union-find simples)."""
 
     def __init__(self):
         self.pai = {}
@@ -362,7 +356,6 @@ REGEX_PONTO_FIO = re.compile(r"^(\*|[hv]-?\d+(\.\d+)?)$")
 
 
 def _limpar_pontos_dos_fios(diagrama):
-    """Remove pontos de fio fora do formato do Wokwi ("h10", "v-20", "*"). Só mudam o desenho."""
     for conexao in diagrama.get("connections", []):
         if len(conexao) >= 4 and isinstance(conexao[3], list):
             conexao[3] = [p for p in conexao[3] if isinstance(p, str) and REGEX_PONTO_FIO.match(p)]
@@ -437,7 +430,6 @@ REGEX_ERRO_GCC = re.compile(
 
 
 def resumir_erros_compilacao(saida: str, limite: int = 10) -> dict:
-    """Extrai da saída do arduino-cli os erros no formato arquivo:linha:coluna."""
     erros, vistos = [], set()
     for m in REGEX_ERRO_GCC.finditer(saida):
         erro = {
@@ -499,7 +491,6 @@ def compilar(projeto: str) -> dict:
 
 
 def _caminho_wokwi_cli():
-    """WOKWI_CLI, depois o PATH, depois a pasta padrão do instalador."""
     return os.environ.get("WOKWI_CLI") or shutil.which("wokwi-cli") or str(Path.home() / ".wokwi/bin/wokwi-cli")
 
 

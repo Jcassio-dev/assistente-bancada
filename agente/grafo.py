@@ -1,13 +1,7 @@
-"""Grafo do agente: guardrails, agente, ferramentas e memória por conversa.
+"""Grafo do agente.
 
-START -> guardrail_entrada -(bloqueado)-> recusa -> END
-                           -(ok)-> agente <-> ferramentas
-                                   agente -(sem tool_calls)-> guardrail_saida -> END
-                                   guardrail_saida -(serial inventada, 1 vez)-> agente
-
-As ferramentas MCP só valem enquanto a sessão MCP está aberta (agente/mcp_config.py),
-então o grafo é montado a cada resposta com as ferramentas da sessão. O checkpointer
-é criado uma vez e passado para todos os grafos: é ele que guarda as conversas.
+As ferramentas MCP só valem com a sessão MCP aberta, então o grafo é montado a
+cada resposta. O checkpointer é um só e é passado para todos os grafos.
 """
 
 import os
@@ -28,7 +22,7 @@ from agente.guardrails import (
     revisar_saida,
 )
 
-LIMITE_PASSOS = 60  # recursion_limit: cada ida e volta agente/ferramentas gasta 2
+LIMITE_PASSOS = 60
 
 
 def criar_modelo():
@@ -39,7 +33,6 @@ def criar_modelo():
 
 
 def ferramentas_locais():
-    """Ferramentas que rodam neste processo (as outras vêm dos servidores MCP)."""
     from agente.rag import buscar_documentos
     from agente.skills import carregar_skill
 
@@ -61,12 +54,10 @@ APRESENTACAO = (
 
 
 def eh_revisao(m):
-    """Mensagem de verificação automática do guardrail de saída (não é do usuário)."""
     return isinstance(m, HumanMessage) and m.additional_kwargs.get("verificacao")
 
 
 def mensagens_da_vez(estado):
-    """Mensagens desde o último pedido do usuário (a resposta em andamento)."""
     mensagens = estado["messages"]
     for i in range(len(mensagens) - 1, -1, -1):
         if isinstance(mensagens[i], HumanMessage) and not eh_revisao(mensagens[i]):
@@ -75,7 +66,6 @@ def mensagens_da_vez(estado):
 
 
 def ferramentas_com_sucesso(mensagens):
-    """Nomes das ferramentas que rodaram com sucesso nestas mensagens."""
     ok = set()
     for m in mensagens:
         if not isinstance(m, ToolMessage) or m.status == "error":
@@ -90,7 +80,6 @@ def ferramentas_com_sucesso(mensagens):
 
 
 def afirmacoes_sem_confirmacao(resposta, mensagens):
-    """Problemas da resposta: serial que não veio da simulação e ações sem a ferramenta."""
     serial_real = "\n".join(m.text for m in mensagens if isinstance(m, ToolMessage) and m.name in FERRAMENTAS_SERIAL)
     problemas = acoes_sem_ferramenta(resposta, ferramentas_com_sucesso(mensagens))
     linhas = linhas_serial_sem_fonte(resposta, serial_real)
@@ -100,11 +89,7 @@ def afirmacoes_sem_confirmacao(resposta, mensagens):
 
 
 def fontes_da_conversa(estado, mensagem):
-    """Texto aceito como fonte de valores técnicos pelo guardrail de saída.
-
-    Mensagem de sistema, pedidos do usuário, argumentos e resultados das
-    ferramentas e trechos do RAG. O texto das respostas do próprio modelo não conta.
-    """
+    """Texto aceito como fonte pelo guardrail de saída (as respostas do modelo não contam)."""
     partes = [mensagem]
     for m in estado["messages"]:
         if isinstance(m, (HumanMessage, ToolMessage)):
@@ -116,12 +101,7 @@ def fontes_da_conversa(estado, mensagem):
 
 
 def montar_grafo(ferramentas, checkpointer=None, modelo=None, mensagem=None, classificador=None):
-    """Compila o grafo.
-
-    ferramentas: lista completa (ferramentas_locais() + as da sessão MCP).
-    modelo, mensagem e classificador: para os testes; por padrão, MODELO do .env,
-    mensagem_sistema() e o próprio modelo (sem ferramentas) classificando a entrada.
-    """
+    """modelo, mensagem e classificador só são passados nos testes."""
     if mensagem is None:
         from agente.prompts import mensagem_sistema
 
@@ -132,7 +112,6 @@ def montar_grafo(ferramentas, checkpointer=None, modelo=None, mensagem=None, cla
     executor = ToolNode(ferramentas)
 
     async def guardrail_entrada(estado: Estado):
-        # Também zera os campos de controle, que valem só para esta pergunta.
         pedidos = [m.text for m in estado["messages"] if isinstance(m, HumanMessage) and not eh_revisao(m)]
         anterior = pedidos[-2] if len(pedidos) > 1 else None
         avaliacao = await avaliar_entrada(classificador, pedidos[-1], anterior)
@@ -176,7 +155,6 @@ def montar_grafo(ferramentas, checkpointer=None, modelo=None, mensagem=None, cla
         guardrails = estado.get("guardrails") or []
         problemas = afirmacoes_sem_confirmacao(final.text, mensagens_da_vez(estado))
         if problemas and not estado.get("revisao_pedida"):
-            # devolve ao agente uma vez, para ele executar de verdade ou corrigir a resposta
             return {
                 "messages": [HumanMessage(MENSAGEM_REVISAO.format(problemas="; ".join(problemas)),
                                           additional_kwargs={"verificacao": True})],
@@ -220,10 +198,6 @@ def configuracao(thread_id):
 
 
 def bastidores(novas, estado):
-    """O que aconteceu numa resposta, para o terminal e a interface.
-
-    novas: mensagens acrescentadas nesta resposta; estado: valores finais do grafo.
-    """
     chamadas = [c for m in novas for c in (getattr(m, "tool_calls", None) or [])]
     resultados = {m.tool_call_id: m for m in novas if isinstance(m, ToolMessage)}
     ferramentas = []
@@ -248,12 +222,7 @@ def bastidores(novas, estado):
 
 
 async def responder(checkpointer, thread_id, texto, modelo=None, ao_progresso=None):
-    """Roda uma resposta completa: abre as sessões MCP, monta o grafo e executa.
-
-    ao_progresso(no, mensagens): chamado a cada passo do grafo com o nome do nó e as
-    mensagens novas (chamadas de ferramenta e resultados), para a interface acompanhar.
-    Devolve (texto da resposta, bastidores).
-    """
+    """Devolve (texto da resposta, bastidores)."""
     from agente.mcp_config import ferramentas_mcp
 
     async with ferramentas_mcp() as mcp:

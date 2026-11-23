@@ -36,8 +36,6 @@ LED = ("led1", "wokwi-led", {"color": "red"})
 R1 = ("r1", "wokwi-resistor", {"value": "220"})
 
 
-# ---------- validar_diagrama ----------
-
 def test_exemplo_blink_e_valido():
     r = validar_diagrama((EXEMPLO / "diagram.json").read_text())
     assert r["valido"], r["erros"]
@@ -135,8 +133,6 @@ def test_tipo_desconhecido_vira_aviso():
     assert any("wokwi-peca-inventada" in a for a in r["avisos"])
 
 
-# ---------- resistor_led ----------
-
 def test_resistor_led_3v3_vermelho():
     r = resistor_led(3.3, 2.0, 10)
     assert r["resistor_ideal_ohms"] == 130.0
@@ -156,8 +152,6 @@ def test_resistor_led_entrada_invalida():
     assert "erro" in resistor_led(5.0, 2.0, 0)
 
 
-# ---------- divisor_tensao ----------
-
 def test_divisor_5v_para_3v3():
     r = divisor_tensao(5.0, 3.3, 10000)
     assert r["r1_ideal_ohms"] == pytest.approx(5151.5, abs=0.1)
@@ -170,8 +164,6 @@ def test_divisor_5v_para_3v3():
 def test_divisor_saida_maior_que_entrada():
     assert "erro" in divisor_tensao(3.3, 5.0)
 
-
-# ---------- largura_trilha ----------
 
 def test_largura_trilha_1a_externa():
     # Valor de referência das calculadoras IPC-2221: ~11,8 mil (0,30 mm).
@@ -195,8 +187,6 @@ def test_largura_trilha_entrada_invalida():
     assert "erro" in largura_trilha(1, camada="meio")
 
 
-# ---------- gerar_bom ----------
-
 def test_bom_agrupa_pecas_iguais():
     d = diagrama(
         [ESP, LED, ("led2", "wokwi-led", {"color": "red"}), ("led3", "wokwi-led", {"color": "green"}),
@@ -212,8 +202,6 @@ def test_bom_agrupa_pecas_iguais():
     assert por_descricao["Resistor 1 kΩ"]["quantidade"] == 1  # valor padrão do Wokwi
     assert por_descricao["Placa ESP32 DevKitC V4"]["quantidade"] == 1
 
-
-# ---------- salvar_projeto ----------
 
 def test_salvar_projeto_escreve_os_tres_arquivos(tmp_path, monkeypatch):
     monkeypatch.setattr(servidor, "PASTA_PROJETOS", tmp_path)
@@ -290,8 +278,6 @@ def test_capturar_display_recusa_peca_que_nao_e_display(tmp_path, monkeypatch):
     r = capturar_display("pisca", "led1")
     assert "não é um display" in r["erro"] and "nenhum" in r["erro"]
 
-
-# ---------- resumir_erros_compilacao ----------
 
 SAIDA_GCC = """\
 /home/u/projetos/x/x.ino: In function 'void loop()':

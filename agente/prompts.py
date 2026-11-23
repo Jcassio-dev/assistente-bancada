@@ -1,5 +1,3 @@
-"""Mensagem de sistema do agente: escopo, uso agêntico do RAG e catálogo de skills."""
-
 from agente.rag import documentos_indexados
 from agente.skills import catalogo_texto
 

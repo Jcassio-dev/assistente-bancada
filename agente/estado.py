@@ -1,19 +1,9 @@
-"""Estado do grafo."""
-
 from langgraph.graph import MessagesState
 
 
 class Estado(MessagesState):
-    # Guardrail que barrou o pedido ("injection", "fora_do_escopo") ou None.
-    bloqueado_por: str | None
-    # Pedido envolve rede elétrica: a resposta leva aviso de segurança.
-    alerta_seguranca: bool
-    # Trechos do RAG recuperados nesta resposta (artifact do buscar_documentos):
-    # fonte aceita pelo guardrail de saída e exibida nos bastidores da interface.
-    trechos_recuperados: list[dict]
-    # O que os guardrails fizeram nesta resposta (ex.: "entrada: classificador: ok",
-    # "saída: aviso de rede elétrica"), para os bastidores da interface.
-    guardrails: list[str]
-    # O guardrail de saída já devolveu a resposta ao agente nesta pergunta
-    # (saída da serial inventada). Só devolve uma vez, para não entrar em ciclo.
-    revisao_pedida: bool
+    bloqueado_por: str | None  # "injection", "fora_do_escopo" ou None
+    alerta_seguranca: bool  # rede elétrica: a resposta leva aviso
+    trechos_recuperados: list[dict]  # fonte aceita pelo guardrail de saída
+    guardrails: list[str]  # o que os guardrails fizeram, para os bastidores
+    revisao_pedida: bool  # a saída só devolve ao agente uma vez por pergunta

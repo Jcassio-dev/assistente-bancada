@@ -1,10 +1,3 @@
-"""Skills: catálogo (nome + descrição) para a mensagem de sistema e a ferramenta carregar_skill.
-
-Cada skill fica em skills/<nome>/SKILL.md, com frontmatter YAML (name, description)
-seguido do corpo em Markdown. Só o catálogo vai para a mensagem de sistema; o
-corpo entra na conversa quando o modelo chama carregar_skill(nome).
-"""
-
 from pathlib import Path
 
 import yaml
@@ -14,7 +7,6 @@ PASTA_SKILLS = Path(__file__).resolve().parent.parent / "skills"
 
 
 def ler_skill(caminho):
-    """(frontmatter, corpo) de um SKILL.md."""
     texto = caminho.read_text(encoding="utf-8")
     if not texto.startswith("---"):
         raise ValueError(f"{caminho} não começa com frontmatter (---)")
@@ -26,7 +18,6 @@ def ler_skill(caminho):
 
 
 def catalogo(pasta=PASTA_SKILLS):
-    """Lista [{nome, descricao}] de todas as skills, em ordem alfabética."""
     itens = []
     for caminho in sorted(pasta.glob("*/SKILL.md")):
         meta, _ = ler_skill(caminho)
@@ -35,7 +26,6 @@ def catalogo(pasta=PASTA_SKILLS):
 
 
 def catalogo_texto(pasta=PASTA_SKILLS):
-    """Catálogo formatado para a mensagem de sistema."""
     return "\n".join(f"- {s['nome']}: {s['descricao']}" for s in catalogo(pasta))
 
 

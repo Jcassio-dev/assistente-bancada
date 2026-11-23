@@ -1,10 +1,4 @@
-"""Interface Streamlit do Assistente de Bancada.
-
-Cada conversa é uma bancada: o chat fica à esquerda e o circuito do projeto da
-conversa à direita, redesenhado enquanto o agente monta.
-
-Uso: streamlit run app.py
-"""
+"""Uso: streamlit run app.py"""
 
 import asyncio
 import json
@@ -97,8 +91,6 @@ async def apagar_memoria(thread_id):
         await checkpointer.adelete_thread(thread_id)
 
 
-# ---------- conversa ativa (fica na URL: ?c=<id>) ----------
-
 def conversa_ativa():
     id_ = st.query_params.get("c")
     if "conversa" in st.session_state and st.session_state.conversa["id"] == id_:
@@ -121,7 +113,7 @@ def abrir(id_=None):
 
 def abrir_projeto(projeto):
     existente = next((c for c in conversas.listar() if c["projeto"] == projeto), None)
-    if existente:  # o projeto já tem bancada: volta para ela em vez de criar outra
+    if existente:
         abrir(existente["id"])
         return
     conversa = conversas.nova(projeto)
@@ -132,8 +124,6 @@ def abrir_projeto(projeto):
 
 conversa = conversa_ativa()
 
-
-# ---------- barra lateral ----------
 
 with st.sidebar:
     st.markdown("### Assistente de Bancada")
@@ -148,7 +138,7 @@ with st.sidebar:
         for c in salvas:
             ativa = c["id"] == conversa["id"]
             titulo = c["titulo"] or "Sem título"
-            if repetidos[c["titulo"]] > 1:  # duas bancadas do mesmo projeto: diferencia pela data
+            if repetidos[c["titulo"]] > 1:
                 titulo += f" ({conversas.quando(c['atualizada'])})"
             st.button(titulo, key=f"conv-{c['id']}", use_container_width=True,
                       type="secondary" if ativa else "tertiary",
@@ -173,8 +163,6 @@ with st.sidebar:
                 st.rerun()
 
 
-# ---------- bancada ----------
-
 def pilulas(conversa):
     itens = etapas_visiveis(conversa.get("etapas"))
     if not itens:
@@ -183,11 +171,8 @@ def pilulas(conversa):
     return "".join(f'<span class="pilula {situacao}">{texto}</span>' for texto, situacao in itens)
 
 
-# ---------- simulação ao vivo ----------
-
 @st.cache_resource
 def simulacoes():
-    """id da conversa -> SimulacaoAoVivo. Vale entre as reexecuções do script."""
     return {}
 
 
@@ -217,9 +202,7 @@ def ligar_simulacao(conversa, diagrama):
 
 
 def tratar_eventos(conversa, resultado):
-    """Peça arrastada/girada na mesa e controles da simulação ao vivo."""
     if movida := getattr(resultado, "mover", None):
-        # uma peça arrastada, ou várias afastadas sozinhas ao montar ({"pecas": [...]})
         for m in movida.get("pecas") or [movida]:
             mover_peca(conversa["projeto"], m["id"], m["left"], m["top"], m.get("rotate", 0))
     sim = simulacoes().get(conversa["id"])
@@ -231,7 +214,6 @@ def tratar_eventos(conversa, resultado):
 
 @st.fragment(run_every=0.7)
 def mesa_ao_vivo(conversa, diagrama, telas):
-    """Mesa com a simulação ligada: a cada segundo atualiza LEDs, serial e tempo, sem redesenhar."""
     id_ = conversa["id"]
     sim = simulacoes().get(id_)
     if sim is None:
@@ -327,8 +309,6 @@ def desenhar_bancada(alvo, conversa, durante_resposta=False):
                 st.caption("A saída da serial aparece aqui depois de uma simulação.")
 
 
-# ---------- chat ----------
-
 def mostrar_bastidores(b):
     partes = []
     if b["skills"]:
@@ -396,11 +376,10 @@ def responder_pedido(conversa, pedido, area_mensagens, painel, abertura):
     if st.query_params.get("c") != conversa["id"]:
         st.query_params["c"] = conversa["id"]
 
-    # o agente sabe qual projeto é desta conversa (pode ter vindo de "Abrir projeto salvo")
     contexto = f"[Projeto aberto na bancada: {conversa['projeto']}]\n" if conversa["projeto"] else ""
     chamadas = {}
 
-    abertura.empty()  # tira as boas-vindas assim que o pedido sai
+    abertura.empty()
     # o agente pode mudar o projeto e simular por conta própria: desliga a simulação ao vivo
     parar_simulacao(conversa["id"])
     with area_mensagens:
@@ -428,7 +407,7 @@ def responder_pedido(conversa, pedido, area_mensagens, painel, abertura):
             try:
                 texto, b = asyncio.run(rodar_agente(conversa["id"], contexto + pedido, ao_progresso))
                 status.update(label="Pronto", state="complete", expanded=False)
-            except Exception as erro:  # ex.: token ausente, cota do modelo, wokwi-cli não instalado
+            except Exception as erro:
                 status.update(label="Erro", state="error", expanded=True)
                 texto, b = remover_segredos(f"Não consegui responder: {erro}")[0], None
 
@@ -456,7 +435,6 @@ with coluna_chat:
                 if item.get("bastidores"):
                     mostrar_bastidores(item["bastidores"])
         if conversa["historico"] and conversa["historico"][-1]["papel"] == "user":
-            # a página foi fechada ou recarregada no meio da resposta
             st.caption("A resposta a este pedido foi interrompida antes de terminar.")
             if st.button("Enviar de novo", icon=":material/refresh:", type="tertiary"):
                 st.session_state.pendente = conversa["historico"].pop()["texto"]

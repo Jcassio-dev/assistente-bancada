@@ -1,8 +1,4 @@
-"""Conecta ao servidor MCP do wokwi-cli e lista as ferramentas expostas.
-
-Uso: python scripts/listar_ferramentas_wokwi.py [pasta_do_projeto]
-Precisa de WOKWI_CLI_TOKEN (no .env ou no ambiente) e do wokwi-cli no PATH (ou WOKWI_CLI).
-"""
+"""Uso: python scripts/listar_ferramentas_wokwi.py [pasta_do_projeto]"""
 
 import asyncio
 import os

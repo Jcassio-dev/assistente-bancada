@@ -1,9 +1,6 @@
-"""Roda os casos de teste do README no grafo real e grava o que saiu, sem interpretar.
+"""Roda os casos de teste do README e grava a saída em dados/casos_de_teste/.
 
 Uso: python scripts/casos_de_teste.py [id ...]
-Cada caso vai para dados/casos_de_teste/<id>.json, com a resposta, as ferramentas
-chamadas, as skills carregadas, os guardrails e os trechos recuperados.
-Precisa do .env completo: chama o modelo e simula no Wokwi.
 """
 
 import asyncio

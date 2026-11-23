@@ -1,17 +1,7 @@
-"""Mesa da bancada: componente Streamlit (v2) que desenha o circuito e conversa com o Python.
+"""Mesa da bancada (componente Streamlit v2).
 
-Diferente de um iframe recriado a cada atualização, este componente roda na página
-e recebe os dados novos sem ser montado de novo: o desenho só é refeito quando as
-peças ou as ligações mudam. Na simulação ao vivo, só os LEDs, a serial e o tempo
-restante são atualizados.
-
-Eventos devolvidos ao Python (valores de gatilho, valem uma execução):
-- mover: {id, left, top, rotate}  peça arrastada ou girada (duplo clique)
-- controle: {parte, controle, valor}  controle de simulação solto pelo usuário
-- botao: {parte}  botão da simulação apertado
-
-As peças vêm da biblioteca @wokwi/elements (MIT) e as placas do repositório
-wokwi-boards, carregadas por CDN em versão fixa (veja interface/painel.py).
+Eventos para o Python: mover {id, left, top, rotate}, controle {parte, controle, valor}
+e botao {parte}.
 """
 
 import streamlit as st
@@ -170,7 +160,6 @@ function posicaoPino(peca, nome) {
   const w = peca.caixa.offsetWidth, h = peca.caixa.offsetHeight;
   const ang = (peca.rotacao * Math.PI) / 180;
   const dx = pino.x - w / 2, dy = pino.y - h / 2;
-  // pino na borda esquerda/direita sai na horizontal; em cima/embaixo, na vertical
   let saida = (pino.x < 0.2 * w || pino.x > 0.8 * w) && pino.y > 0.08 * h && pino.y < 0.92 * h ? "h" : "v";
   if (Math.round(peca.rotacao / 90) % 2) saida = saida === "h" ? "v" : "h";
   return { x: peca.caixa.offsetLeft + w / 2 + dx * Math.cos(ang) - dy * Math.sin(ang),
@@ -178,7 +167,6 @@ function posicaoPino(peca, nome) {
 }
 
 function contorno(p) {
-  // retângulo da peça na mesa; girada de 90 graus, troca largura e altura
   const w = p.caixa.offsetWidth, h = p.caixa.offsetHeight;
   const [bw, bh] = Math.round(p.rotacao / 90) % 2 ? [h, w] : [w, h];
   const cx = p.caixa.offsetLeft + w / 2, cy = p.caixa.offsetTop + h / 2;
@@ -186,8 +174,6 @@ function contorno(p) {
 }
 
 function desembaracar(b) {
-  // o agente escolhe as posições e às vezes põe uma peça em cima da placa ou de outra peça:
-  // procura a posição livre mais próxima, em volta da original, e move a peça para lá
   const pecas = Object.values(b.pecas);
   const folga = 10, movidas = [];
   const livre = (p, c) => pecas.every((q) => {
@@ -226,7 +212,6 @@ function posicionarRotulos(b) {
   for (const p of pecas) {
     if (!p.rotulo) continue;
     const c = caixas.get(p), lw = p.rotulo.offsetWidth, lh = p.rotulo.offsetHeight;
-    // embaixo; se cobrir outra peça, à direita, à esquerda ou em cima
     const opcoes = [[c.x0, c.y1 + 4], [c.x1 + 4, (c.y0 + c.y1 - lh) / 2],
                     [c.x0 - lw - 4, (c.y0 + c.y1 - lh) / 2], [c.x0, c.y0 - lh - 4]];
     const [x, y] = opcoes.find(([x, y]) => !bate({ x0: x, y0: y, x1: x + lw, y1: y + lh }, p)) || opcoes[0];
@@ -358,7 +343,7 @@ async function montar(b, dados) {
     if (versao !== b.versao) return;  // outro desenho começou no meio deste
   }
   b.pecas = pecas;
-  await new Promise((r) => setTimeout(r, 120));  // as imagens das placas definem o tamanho
+  await new Promise((r) => setTimeout(r, 120));
   if (versao !== b.versao) return;
   const movidas = desembaracar(b);
   enquadrar(b, desenharFios(b));
@@ -421,7 +406,7 @@ export default function (component) {
   let b = raiz.__bancada;
   if (!b) b = raiz.__bancada = estrutura(raiz);
   b.enviar = setTriggerValue;
-  b.editavel = data.editavel !== false;  // durante a resposta do agente, um evento interromperia a resposta
+  b.editavel = data.editavel !== false;
   b.area.style.setProperty("--altura", (data.altura || 480) + "px");
   b.ultimoDados = data;
   // só redesenha quando peças, ligações, telas ou destaques mudam; posição mudada aqui já está na tela
@@ -441,11 +426,7 @@ _componente = st.components.v2.component("assistente_bancada_mesa", html=HTML, c
 
 
 def mesa(chave, diagrama, telas=None, destaques=None, ao_vivo=None, controles=None, altura=480, editavel=True):
-    """Desenha a mesa e devolve o resultado com os gatilhos mover, controle e botao.
-
-    editavel=False (durante a resposta do agente): não arrasta nem grava posições, porque
-    o evento reexecutaria o script e interromperia a resposta.
-    """
+    """editavel=False durante a resposta: um evento reexecutaria o script e interromperia a resposta."""
     dados = {
         "diagrama": diagrama,
         "telas": telas or {},

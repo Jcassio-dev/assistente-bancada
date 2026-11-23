@@ -1,8 +1,4 @@
-"""Chat pelo terminal, para testar o grafo sem a interface.
-
-Uso: python scripts/conversar.py
-Comandos: /nova (nova conversa), /sair.
-"""
+"""Chat pelo terminal. Uso: python scripts/conversar.py (/nova, /sair)"""
 
 import asyncio
 import sys
@@ -33,7 +29,7 @@ def mostrar_bastidores(b):
 
 async def main():
     load_dotenv(RAIZ / ".env")
-    checkpointer = InMemorySaver()  # um só para todas as conversas desta sessão
+    checkpointer = InMemorySaver()
     modelo = criar_modelo()
     thread_id = str(uuid.uuid4())
     print(f"Conversa {thread_id[:8]}. Comandos: /nova, /sair.")
