@@ -2,6 +2,12 @@
 
 **Dupla:** José Cássio e Felipe Baraúna
 
+
+
+https://github.com/user-attachments/assets/afa5a83d-8564-4337-bb1a-539f5f116693
+
+
+
 ---
 
 ## O que o assistente faz e para quem
